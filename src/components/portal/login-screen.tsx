@@ -2,39 +2,39 @@ import React, { useState } from "react";
 import { BrandMark } from "./primitives";
 
 export function LoginScreen({
-  onAuth,
+  onSignIn,
   theme: _theme,
   setTheme: _setTheme,
 }: {
-  onAuth: () => void;
+  onSignIn: (
+    email: string,
+    password: string,
+  ) => Promise<{ error: string | null }>;
   theme: string;
   setTheme: (t: string) => void;
 }) {
   void _theme;
   void _setTheme;
-  const onSubmit = onAuth;
-  const [email, setEmail] = useState("james.radcliffe@example.com");
-  const [pw, setPw] = useState("••••••••••••");
+  const [email, setEmail] = useState("");
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
   return (
     <div className="login-wrap">
       <aside className="login-aside">
         <div className="login-aside-brand">
-          <BrandMark size={30} />
-          <div>
-            <div style={{ fontFamily: "var(--serif)", fontSize: 16 }}>
-              Vivid Capital
-            </div>
-            <div
-              className="mono"
-              style={{
-                fontSize: 9.5,
-                letterSpacing: "0.18em",
-                color: "var(--ink-3)",
-                textTransform: "uppercase",
-              }}
-            >
-              Client Portal
-            </div>
+          <BrandMark size={40} />
+          <div
+            className="mono"
+            style={{
+              fontSize: 9.5,
+              letterSpacing: "0.18em",
+              color: "var(--ink-3)",
+              textTransform: "uppercase",
+            }}
+          >
+            Client Portal
           </div>
         </div>
 
@@ -51,28 +51,9 @@ export function LoginScreen({
               lineHeight: 1.6,
             }}
           >
-            Connect any MT4 or MT5 account and watch balance, equity,
-            positions, and P&amp;L stream in real time.
+            Your administrator connects broker accounts to this portal; you
+            view balances, equity, positions, and P&amp;L on refresh.
           </p>
-
-          <div className="login-kpis">
-            <div className="lk">
-              <div className="lk-k">Data latency</div>
-              <div className="lk-v">&lt;350ms</div>
-            </div>
-            <div className="lk">
-              <div className="lk-k">Brokers supported</div>
-              <div className="lk-v">140+</div>
-            </div>
-            <div className="lk">
-              <div className="lk-k">Uptime 12mo</div>
-              <div className="lk-v">99.98%</div>
-            </div>
-            <div className="lk">
-              <div className="lk-k">Accounts</div>
-              <div className="lk-v">MT4 · MT5</div>
-            </div>
-          </div>
         </div>
 
         <div className="login-aside-foot">
@@ -100,11 +81,26 @@ export function LoginScreen({
           </div>
           <form
             className="login-form"
-            onSubmit={(e) => {
+            onSubmit={async (e) => {
               e.preventDefault();
-              onSubmit();
+              setErr(null);
+              setBusy(true);
+              const { error } = await onSignIn(email, pw);
+              setBusy(false);
+              if (error) setErr(error);
             }}
           >
+            {err && (
+              <div
+                style={{
+                  fontSize: 13,
+                  color: "var(--down)",
+                  marginBottom: 8,
+                }}
+              >
+                {err}
+              </div>
+            )}
             <div className="field">
               <label>Email</label>
               <input
@@ -112,6 +108,8 @@ export function LoginScreen({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoFocus
+                required
+                autoComplete="email"
               />
             </div>
             <div className="field">
@@ -139,14 +137,17 @@ export function LoginScreen({
                 type="password"
                 value={pw}
                 onChange={(e) => setPw(e.target.value)}
+                required
+                autoComplete="current-password"
               />
             </div>
             <button
               type="submit"
               className="btn primary"
               style={{ height: 40, marginTop: 4, justifyContent: "center" }}
+              disabled={busy}
             >
-              Sign in
+              {busy ? "Signing in…" : "Sign in"}
             </button>
           </form>
           <div className="login-meta">

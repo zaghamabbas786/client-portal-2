@@ -106,6 +106,8 @@ export interface PortalAccount {
   deposit: number;
   openedAt: string;
   seed: number;
+  /** MetaAPI account UUID when linked (server-side live hydration). */
+  metaApiAccountId?: string | null;
 }
 
 function genEquityCurve(seed: number, days: number, startEq: number) {
@@ -134,6 +136,7 @@ function aggregateEquity(accounts: readonly PortalAccount[], days: number) {
   const perAcc = accounts
     .filter((a) => a.status === "live")
     .map((a) => genEquityCurve(a.seed, days, a.equity));
+  if (perAcc.length === 0) return [];
   const len = perAcc[0]?.length || 0;
   const out: { t: number; eq: number }[] = [];
   for (let i = 0; i < len; i++) {
@@ -153,9 +156,15 @@ const SYMBOLS = [
   { sym: "US500", base: 5218.6, vol: 4.8 },
   { sym: "NAS100", base: 18204.5, vol: 22.0 },
   { sym: "BTCUSD", base: 67_421.0, vol: 180.0 },
-];
+] as const;
 
-type SymbolDef = (typeof SYMBOLS)[number];
+export type SymbolDef = (typeof SYMBOLS)[number];
+
+export function symbolDefForSymbol(symbol: string): SymbolDef {
+  const found = SYMBOLS.find((s) => s.sym === symbol);
+  if (found) return found as SymbolDef;
+  return { sym: symbol, base: 1, vol: 0.0005 } as unknown as SymbolDef;
+}
 
 export type PositionRow = {
   id: string;
@@ -170,8 +179,8 @@ export type PositionRow = {
   openTime: number;
   pl: number;
   swap: number;
-  sl: null;
-  tp: null;
+  sl: number | null;
+  tp: number | null;
 };
 
 function genPositions(accounts: readonly PortalAccount[]): PositionRow[] {
@@ -276,6 +285,7 @@ function genHistory(
   const out: HistoryRow[] = [];
   let id = 500000;
   const liveAccs = accounts.filter((a) => a.status === "live");
+  if (liveAccs.length === 0) return [];
   for (let i = 0; i < count; i++) {
     const acc = liveAccs[Math.floor(rng() * liveAccs.length)];
     const symDef = SYMBOLS[Math.floor(rng() * SYMBOLS.length)];
@@ -349,13 +359,13 @@ function computeAggregates(accounts: readonly PortalAccount[]) {
   const deposit = live.reduce((s, a) => s + a.deposit, 0);
   const floating = equity - balance;
   const totalPL = equity - deposit;
-  const totalPLPct = (totalPL / deposit) * 100;
+  const totalPLPct = deposit ? (totalPL / deposit) * 100 : 0;
   const curve = aggregateEquity(accounts, 60);
   const todayPL =
     curve.length > 1
       ? curve[curve.length - 1].eq - curve[curve.length - 2].eq
       : 0;
-  const todayPLPct = (todayPL / equity) * 100;
+  const todayPLPct = equity ? (todayPL / equity) * 100 : 0;
   return {
     equity,
     balance,

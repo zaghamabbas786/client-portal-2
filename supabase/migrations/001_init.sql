@@ -1,0 +1,5 @@
+-- ---------------------------------------------------------------------------
+-- Optional numbered migration slot. Do not duplicate DDL here.
+-- Production / full bootstrap: run repository root `master.sql` in Supabase SQL.
+-- New schema changes: append to `master.sql` at the end (single source of truth).
+-- ---------------------------------------------------------------------------

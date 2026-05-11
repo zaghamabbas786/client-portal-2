@@ -1,4 +1,6 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { ProfileRow } from "@/lib/trading-account-mapper";
 import type { HistoryRow, PortalAccount, PositionRow } from "@/lib/portal-data";
 import { PortalData } from "@/lib/portal-data";
 import { EquityChart, Sparkline } from "./charts";
@@ -12,12 +14,12 @@ export function Dashboard({
   accounts,
   activeAccountId,
   positions,
-  onConnect,
+  dataUpdatedAt,
 }: {
   accounts: PortalAccount[];
   activeAccountId: string;
   positions: PositionRow[];
-  onConnect: () => void;
+  dataUpdatedAt: number;
 }) {
   const [range, setRange] = useP('3M');
   const rangeDays = { '1W': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365, 'ALL': 540 }[range] || 90;
@@ -40,10 +42,9 @@ export function Dashboard({
         <div>
           <div className="eyebrow" style={{ marginBottom: 8 }}>{activeAccountId === 'all' ? 'All accounts' : (accounts.find(a => a.id === activeAccountId)?.label || '')}</div>
           <h1 className="page-title">Dashboard</h1>
-          <div className="page-sub">Live across {scoped.filter(a => a.status === 'live').length} connected {scoped.filter(a => a.status === 'live').length === 1 ? 'account' : 'accounts'} · Updated {new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
+          <div className="page-sub">Snapshot across {scoped.filter(a => a.status === 'live').length} connected {scoped.filter(a => a.status === 'live').length === 1 ? 'account' : 'accounts'} · Last refresh {new Date(dataUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
         </div>
         <div className="page-actions">
-          <button className="btn ghost"><Ic.refresh />Refresh</button>
           <button className="btn"><Ic.download />Export</button>
         </div>
       </div>
@@ -114,13 +115,13 @@ export function Dashboard({
         <div className="panel">
           <div className="panel-head">
             <h3 className="panel-title">Open positions</h3>
-            <span className="mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{scopedPos.length} live · floating <span style={{ color: floating >= 0 ? 'var(--up)' : 'var(--down)' }}>{fmt.moneySigned(floating, 'USD')}</span></span>
+            <span className="mono" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{scopedPos.length} open · floating <span style={{ color: floating >= 0 ? 'var(--up)' : 'var(--down)' }}>{fmt.moneySigned(floating, 'USD')}</span></span>
           </div>
           <div className="panel-body flush">
             {scopedPos.length === 0 ? (
               <div className="empty">
                 <div className="eh">No open positions</div>
-                <div className="es">When the strategy opens new positions, they&apos;ll appear here with live P&L.</div>
+                <div className="es">Open positions from your last refresh appear here with P&amp;L from that snapshot.</div>
               </div>
             ) : (
               <table className="tbl">
@@ -154,7 +155,6 @@ export function Dashboard({
         <div className="panel">
           <div className="panel-head">
             <h3 className="panel-title">Connected accounts</h3>
-            <button className="btn ghost" style={{ height: 28, fontSize: 12 }} onClick={onConnect}><Ic.plus />Add</button>
           </div>
           <div className="panel-body flush">
             {accounts.map(a => {
@@ -196,10 +196,12 @@ export function Accounts({
   accounts,
   onConnect,
   onSelect,
+  dataUpdatedAt,
 }: {
   accounts: PortalAccount[];
-  onConnect: () => void;
+  onConnect?: () => void;
   onSelect: (id: string) => void;
+  dataUpdatedAt: number;
 }) {
   return (
     <>
@@ -207,10 +209,12 @@ export function Accounts({
         <div>
           <div className="eyebrow" style={{ marginBottom: 8 }}>MT4 · MT5</div>
           <h1 className="page-title">Accounts</h1>
-          <div className="page-sub">Connect your trading accounts to track balance, equity, and positions in real time.</div>
+          <div className="page-sub">Figures from your last refresh ({new Date(dataUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}). Accounts linked by your administrator appear here.</div>
         </div>
         <div className="page-actions">
-          <button className="btn primary" onClick={onConnect}><Ic.plus />Connect account</button>
+          {onConnect && (
+            <button className="btn primary" onClick={onConnect}><Ic.plus />Connect account</button>
+          )}
         </div>
       </div>
 
@@ -279,6 +283,7 @@ export function Accounts({
         })}
 
         {/* Empty slot to add */}
+        {onConnect && (
         <button className="account-card" onClick={onConnect} style={{
           alignItems: 'center', justifyContent: 'center', gap: 10,
           borderStyle: 'dashed', color: 'var(--ink-3)', minHeight: 240,
@@ -290,6 +295,146 @@ export function Accounts({
           <div style={{ fontFamily: 'var(--serif)', fontSize: 17, color: 'var(--ink-2)' }}>Connect another account</div>
           <div style={{ fontSize: 12, maxWidth: 32 * 7 }}>Supports MetaTrader 4 & 5 · Any broker with server login</div>
         </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+// ========== Settings ==========
+export function Settings({
+  supabase,
+  userId,
+  profile,
+  authEmail,
+  onProfileRefresh,
+}: {
+  supabase: SupabaseClient;
+  userId: string;
+  profile: ProfileRow | null;
+  authEmail: string;
+  onProfileRefresh: () => void | Promise<void>;
+}) {
+  const [fullName, setFullName] = useState(profile?.full_name ?? "");
+  const [phone, setPhone] = useState(profile?.phone ?? "");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setFullName(profile?.full_name ?? "");
+    setPhone(profile?.phone ?? "");
+  }, [profile?.full_name, profile?.phone]);
+
+  const displayEmail =
+    authEmail.trim() ||
+    profile?.email?.trim() ||
+    "";
+
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setMsg(null);
+    setBusy(true);
+    try {
+      const trimmedName = fullName.trim();
+      const trimmedPhone = phone.trim();
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          full_name: trimmedName,
+          phone: trimmedPhone || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", userId);
+      if (error) setMsg(error.message);
+      else {
+        setMsg("Your profile has been updated.");
+        await onProfileRefresh();
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="page-head">
+        <div>
+          <div className="eyebrow" style={{ marginBottom: 8 }}>
+            Account
+          </div>
+          <h1 className="page-title">Settings</h1>
+          <div className="page-sub">
+            Update how your name appears in the portal. Email is tied to login
+            and cannot be edited here.
+          </div>
+        </div>
+      </div>
+
+      <div className="panel" style={{ maxWidth: 520 }}>
+        <div className="panel-head">
+          <h3 className="panel-title">Profile</h3>
+        </div>
+        <div className="panel-body">
+          {msg && (
+            <div
+              style={{
+                fontSize: 13,
+                marginBottom: 14,
+                color:
+                  msg.startsWith("Your profile") ? "var(--ink-2)" : "var(--down)",
+              }}
+            >
+              {msg}
+            </div>
+          )}
+          <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div className="field">
+              <label htmlFor="settings-full-name">Full name</label>
+              <input
+                id="settings-full-name"
+                name="full_name"
+                type="text"
+                autoComplete="name"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="settings-email">Email</label>
+              <input
+                id="settings-email"
+                type="email"
+                value={displayEmail}
+                disabled
+                aria-readonly
+                style={{
+                  opacity: 0.72,
+                  cursor: "not-allowed",
+                }}
+              />
+              <div style={{ fontSize: 11.5, color: "var(--ink-3)", lineHeight: 1.35 }}>
+                Email cannot be changed here. Contact support.
+              </div>
+            </div>
+            <div className="field">
+              <label htmlFor="settings-phone">Phone</label>
+              <input
+                id="settings-phone"
+                name="phone"
+                type="tel"
+                autoComplete="tel"
+                placeholder="+1 (555) 000-0000"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+              />
+            </div>
+            <div style={{ paddingTop: 4 }}>
+              <button type="submit" className="btn primary" disabled={busy}>
+                {busy ? "Saving…" : "Save changes"}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </>
   );
@@ -301,22 +446,68 @@ export function Positions({
   positions,
   activeAccountId,
   setActiveAccountId,
+  dataUpdatedAt,
 }: {
   accounts: PortalAccount[];
   positions: PositionRow[];
   activeAccountId: string;
   setActiveAccountId: (id: string) => void;
+  dataUpdatedAt: number;
 }) {
-  const scoped = positions.filter(p => activeAccountId === 'all' || p.accountId === activeAccountId);
-  const total = scoped.reduce((s, p) => s + p.pl, 0);
-  const totalSwap = scoped.reduce((s, p) => s + p.swap, 0);
+  const [search, setSearch] = useState("");
+  const [symbol, setSymbol] = useState("all");
+  const [side, setSide] = useState<"all" | "buy" | "sell">("all");
+
+  const accountScoped = useMemo(
+    () =>
+      positions.filter(
+        (p) => activeAccountId === "all" || p.accountId === activeAccountId,
+      ),
+    [positions, activeAccountId],
+  );
+
+  const symbols = useMemo(
+    () =>
+      Array.from(new Set(accountScoped.map((p) => p.symbol))).sort((a, b) =>
+        a.localeCompare(b),
+      ),
+    [accountScoped],
+  );
+
+  useEffect(() => {
+    setSearch("");
+    setSymbol("all");
+    setSide("all");
+  }, [activeAccountId]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return accountScoped.filter((p) => {
+      if (q) {
+        const idStr = String(p.id).toLowerCase();
+        if (
+          !p.symbol.toLowerCase().includes(q) &&
+          !idStr.includes(q)
+        ) {
+          return false;
+        }
+      }
+      if (symbol !== "all" && p.symbol !== symbol) return false;
+      if (side === "buy" && p.side.toUpperCase() !== "BUY") return false;
+      if (side === "sell" && p.side.toUpperCase() !== "SELL") return false;
+      return true;
+    });
+  }, [accountScoped, search, symbol, side]);
+
+  const total = filtered.reduce((s, p) => s + p.pl, 0);
+  const totalSwap = filtered.reduce((s, p) => s + p.swap, 0);
   return (
     <>
       <div className="page-head">
         <div>
-          <div className="eyebrow" style={{ marginBottom: 8 }}>Live</div>
+          <div className="eyebrow" style={{ marginBottom: 8 }}>As of last refresh</div>
           <h1 className="page-title">Open Positions</h1>
-          <div className="page-sub">{scoped.length} positions · floating <span className="mono" style={{ color: total >= 0 ? 'var(--up)' : 'var(--down)' }}>{fmt.moneySigned(total, 'USD')}</span> · swap <span className="mono">{fmt.moneySigned(totalSwap, 'USD')}</span></div>
+          <div className="page-sub">{filtered.length} positions · floating <span className="mono" style={{ color: total >= 0 ? 'var(--up)' : 'var(--down)' }}>{fmt.moneySigned(total, 'USD')}</span> · swap <span className="mono">{fmt.moneySigned(totalSwap, 'USD')}</span> · snapshot {new Date(dataUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
         </div>
       </div>
 
@@ -324,7 +515,13 @@ export function Positions({
         <div className="filters">
           <div style={{ position: 'relative', flex: '0 0 auto' }}>
             <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--ink-3)', pointerEvents: 'none' }}><Ic.search /></span>
-            <input type="search" placeholder="Symbol, ticket" style={{ paddingLeft: 30 }}/>
+            <input
+              type="search"
+              placeholder="Symbol, ticket"
+              style={{ paddingLeft: 30 }}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
           </div>
           <select value={activeAccountId} onChange={e => setActiveAccountId(e.target.value)}>
             <option value="all">All accounts</option>
@@ -332,10 +529,28 @@ export function Positions({
               <option key={a.id} value={a.id}>{a.label} · #{a.login}</option>
             ))}
           </select>
-          <select><option>All symbols</option><option>FX</option><option>Indices</option><option>Metals</option><option>Crypto</option></select>
-          <select><option>All sides</option><option>Buy only</option><option>Sell only</option></select>
+          <select value={symbol} onChange={(e) => setSymbol(e.target.value)}>
+            <option value="all">All symbols</option>
+            {symbols.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+          <select
+            value={side}
+            onChange={(e) =>
+              setSide(e.target.value as "all" | "buy" | "sell")
+            }
+          >
+            <option value="all">All sides</option>
+            <option value="buy">Buy only</option>
+            <option value="sell">Sell only</option>
+          </select>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
-            <span className="live-pill"><span className="pulse"></span>Live</span>
+            <span className="live-pill live-pill--snapshot" title="Quotes from last refresh only">
+              <span className="mono" style={{ fontSize: 10 }}>Snapshot · {new Date(dataUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+            </span>
           </div>
         </div>
         <table className="tbl">
@@ -351,7 +566,23 @@ export function Positions({
             <th className="num">P&L</th>
           </tr></thead>
           <tbody>
-            {scoped.map(p => {
+            {filtered.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={9}
+                  style={{
+                    padding: 24,
+                    textAlign: "center",
+                    color: "var(--ink-3)",
+                  }}
+                >
+                  {accountScoped.length === 0
+                    ? "No open positions for this snapshot."
+                    : "No positions match your filters."}
+                </td>
+              </tr>
+            ) : (
+            filtered.map(p => {
               const acc = accounts.find(a => a.id === p.accountId);
               return (
                 <tr key={p.id}>
@@ -367,7 +598,7 @@ export function Positions({
                   </td>
                   <td>
                     <div className="mono" style={{ fontSize: 11.5 }}>{fmt.dateTime(p.openTime)}</div>
-                    <div className="mono" style={{ fontSize: 10.5, color: 'var(--ink-3)' }}>{fmt.duration(Date.now() - p.openTime)} ago</div>
+                    <div className="mono" style={{ fontSize: 10.5, color: 'var(--ink-3)' }}>{fmt.duration(dataUpdatedAt - p.openTime)} ago (at refresh)</div>
                   </td>
                   <td className="num">{p.openPrice}</td>
                   <td className="num"><FlashNum value={p.currentPrice} decimals={p.symbol.includes('JPY') ? 3 : p.symbol === 'XAUUSD' ? 2 : p.symbol === 'BTCUSD' || p.symbol.startsWith('US') || p.symbol.startsWith('NAS') ? 2 : 5}/></td>
@@ -377,7 +608,8 @@ export function Positions({
                   </td>
                 </tr>
               );
-            })}
+            })
+            )}
           </tbody>
         </table>
       </div>
@@ -391,28 +623,30 @@ export function History({
   history,
   activeAccountId,
   setActiveAccountId,
+  dataUpdatedAt,
 }: {
   accounts: PortalAccount[];
   history: HistoryRow[];
   activeAccountId: string;
   setActiveAccountId: (id: string) => void;
+  dataUpdatedAt: number;
 }) {
   const [symbol, setSymbol] = useP('all');
   const [side, setSide] = useP('all');
   const [period, setPeriod] = useP('30d');
 
   const filtered = useM(() => {
-    const now = Date.now();
+    const ref = dataUpdatedAt;
     const periodDays = { '7d': 7, '30d': 30, '90d': 90, '1y': 365 } as const;
     const cutoff = (periodDays[period as keyof typeof periodDays] ?? 30) * 86400_000;
     return history.filter(h => {
       if (activeAccountId !== 'all' && h.accountId !== activeAccountId) return false;
       if (symbol !== 'all' && h.symbol !== symbol) return false;
       if (side !== 'all' && h.side.toLowerCase() !== side) return false;
-      if (cutoff && (now - h.closeTime) > cutoff) return false;
+      if (cutoff && (ref - h.closeTime) > cutoff) return false;
       return true;
     });
-  }, [history, activeAccountId, symbol, side, period]);
+  }, [history, activeAccountId, symbol, side, period, dataUpdatedAt]);
 
   const net = filtered.reduce((s, h) => s + h.net, 0);
   const wins = filtered.filter(h => h.net > 0).length;
@@ -432,7 +666,7 @@ export function History({
         <div>
           <div className="eyebrow" style={{ marginBottom: 8 }}>Closed trades</div>
           <h1 className="page-title">Trade History</h1>
-          <div className="page-sub">{filtered.length} trades · net <span className="mono" style={{ color: net >= 0 ? 'var(--up)' : 'var(--down)' }}>{fmt.moneySigned(net, 'USD')}</span> · win rate <span className="mono">{winRate.toFixed(1)}%</span></div>
+          <div className="page-sub">{filtered.length} trades · net <span className="mono" style={{ color: net >= 0 ? 'var(--up)' : 'var(--down)' }}>{fmt.moneySigned(net, 'USD')}</span> · win rate <span className="mono">{winRate.toFixed(1)}%</span> · data from refresh {new Date(dataUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
         </div>
         <div className="page-actions">
           <button className="btn"><Ic.download />CSV</button>

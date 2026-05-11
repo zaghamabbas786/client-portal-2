@@ -1,3 +1,4 @@
+import Image from "next/image";
 import React, { useEffect, useRef, useState } from "react";
 
 export const Ic = {
@@ -241,26 +242,25 @@ export const Ic = {
 
 export function BrandMark({ size = 26 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
-      <rect
-        x="1"
-        y="1"
-        width="38"
-        height="38"
-        rx="2"
-        stroke="currentColor"
-        strokeOpacity="0.5"
-        strokeWidth="1"
+    <span
+      className="brand-mark-wrap"
+      style={{
+        height: size,
+        display: "inline-flex",
+        alignItems: "center",
+      }}
+    >
+      <Image
+        src="/vivid-capital-logo.png"
+        alt="Vivid Capital"
+        width={640}
+        height={256}
+        className="brand-mark"
+        style={{ height: size, width: "auto", objectFit: "contain" }}
+        sizes={`${Math.min(280, Math.round(size * 6))}px`}
+        priority
       />
-      <path
-        d="M10 13 L20 28 L30 13"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        fill="none"
-        strokeLinecap="square"
-      />
-      <circle cx="20" cy="13" r="1" fill="currentColor" />
-    </svg>
+    </span>
   );
 }
 

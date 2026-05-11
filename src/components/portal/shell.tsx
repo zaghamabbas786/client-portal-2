@@ -1,3 +1,4 @@
+import Link from "next/link";
 import React, { useState } from "react";
 import type { PortalAccount } from "@/lib/portal-data";
 import { BrandMark, Ic } from "./primitives";
@@ -7,11 +8,19 @@ export function Sidebar({
   setRoute,
   accountsCount,
   positionsCount,
+  userLabel,
+  userSub,
+  isAdmin,
+  onSignOut,
 }: {
   route: string;
   setRoute: (r: string) => void;
   accountsCount: number;
   positionsCount: number;
+  userLabel: string;
+  userSub: string;
+  isAdmin: boolean;
+  onSignOut: () => void;
 }) {
   const item = (key: string, label: string, icon: React.ReactNode, count?: number) => (
     <button
@@ -27,11 +36,7 @@ export function Sidebar({
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
-        <BrandMark size={26} />
-        <div>
-          <div className="name">Vivid Capital</div>
-          <div className="sub">Portal</div>
-        </div>
+        <BrandMark size={30} />
       </div>
 
       <div className="nav-section">Overview</div>
@@ -43,23 +48,37 @@ export function Sidebar({
       {item("history", "Trade History", <Ic.history />)}
 
       <div className="nav-section">Account</div>
-      <button type="button" className="nav-item">
-        <Ic.bell />
-        <span>Alerts</span>
-      </button>
-      <button type="button" className="nav-item">
-        <Ic.gear />
-        <span>Settings</span>
-      </button>
+      {isAdmin ? (
+        <>
+          <div className="nav-section">Administration</div>
+          <Link
+            href="/admin"
+            className="nav-item"
+            style={{ textDecoration: "none", color: "inherit" }}
+          >
+            <Ic.accounts />
+            <span>Admin console</span>
+          </Link>
+        </>
+      ) : null}
+      {item("settings", "Settings", <Ic.gear />)}
 
       <div className="sidebar-foot">
         <div className="sidebar-user">
-          <div className="avatar">JR</div>
+          <div className="avatar">{userLabel.slice(0, 2).toUpperCase()}</div>
           <div className="sidebar-user-meta">
-            <span className="n truncate">James Radcliffe</span>
-            <span className="s">Client · 039281</span>
+            <span className="n truncate">{userLabel}</span>
+            <span className="s truncate">{userSub}</span>
           </div>
         </div>
+        <button
+          type="button"
+          className="nav-item"
+          onClick={onSignOut}
+          style={{ marginTop: 8 }}
+        >
+          <span style={{ fontSize: 11 }}>Sign out</span>
+        </button>
       </div>
     </aside>
   );
@@ -80,7 +99,7 @@ export function Topbar({
   setActiveAccountId: (id: string) => void;
   theme: string;
   setTheme: (t: string) => void;
-  onConnect: () => void;
+  onConnect?: () => void;
 }) {
   const crumbs =
     {
@@ -88,6 +107,7 @@ export function Topbar({
       accounts: "Accounts",
       positions: "Open Positions",
       history: "Trade History",
+      settings: "Settings",
     }[route] || "";
   const [open, setOpen] = useState(false);
   const active =
@@ -115,9 +135,7 @@ export function Topbar({
       </div>
 
       <div className="topbar-actions">
-        <span className="live-pill">
-          <span className="pulse"></span>Live
-        </span>
+        {route !== "settings" && (
         <div style={{ position: "relative" }}>
           <button
             type="button"
@@ -241,10 +259,13 @@ export function Topbar({
             </div>
           )}
         </div>
+        )}
+        {onConnect && (
         <button type="button" className="btn" onClick={onConnect}>
           <Ic.plus />
           Connect account
         </button>
+        )}
         <button
           type="button"
           className="theme-toggle"

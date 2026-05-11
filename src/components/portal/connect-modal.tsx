@@ -3,13 +3,18 @@ import { Ic } from "./primitives";
 
 export function ConnectModal({
   onClose,
-  onConfirm: _onConfirm,
+  clientUsers,
+  defaultUserId,
 }: {
   onClose: () => void;
-  onConfirm?: () => void;
+  /** When set (admin), link flow posts to `/api/admin/trading-accounts`. */
+  clientUsers?: { id: string; email: string }[];
+  defaultUserId?: string;
 }) {
-  void _onConfirm;
   const [platform, setPlatform] = useState("MT5");
+  const [userId, setUserId] = useState(
+    () => defaultUserId || clientUsers?.[0]?.id || "",
+  );
   const [step, setStep] = useState<"form" | "connecting" | "done">("form");
   const [form, setForm] = useState({
     broker: "",
@@ -17,6 +22,7 @@ export function ConnectModal({
     login: "",
     password: "",
     label: "",
+    metaapi_account_id: "",
   });
   const set =
     (k: keyof typeof form) =>
@@ -25,8 +31,36 @@ export function ConnectModal({
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (clientUsers?.length && !userId) return;
     setStep("connecting");
-    setTimeout(() => setStep("done"), 1600);
+    const isAdmin = !!clientUsers?.length;
+    const run = async () => {
+      if (isAdmin) {
+        const res = await fetch("/api/admin/trading-accounts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_id: userId,
+            platform,
+            broker: form.broker,
+            server: form.server,
+            login: form.login,
+            label: form.label,
+            metaapi_account_id: form.metaapi_account_id,
+          }),
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setStep("form");
+          alert(j.error || "Failed to link account");
+          return;
+        }
+      } else {
+        await new Promise((r) => setTimeout(r, 1600));
+      }
+      setStep("done");
+    };
+    void run();
   }
 
   return (
@@ -52,6 +86,22 @@ export function ConnectModal({
         {step === "form" && (
           <form onSubmit={submit}>
             <div className="modal-body">
+              {clientUsers && clientUsers.length > 0 && (
+                <div className="field">
+                  <label>Client user</label>
+                  <select
+                    value={userId}
+                    onChange={(e) => setUserId(e.target.value)}
+                    required
+                  >
+                    {clientUsers.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.email}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="platform-toggle">
                 <button
                   type="button"
@@ -130,6 +180,39 @@ export function ConnectModal({
                   onChange={set("label")}
                 />
               </div>
+
+              {clientUsers?.length ? (
+                <div className="field">
+                  <label>MetaAPI account id (optional)</label>
+                  <input
+                    className="mono"
+                    placeholder="865d3a4d-3803-486d-bdf3-a85679d9fad2"
+                    value={form.metaapi_account_id}
+                    onChange={set("metaapi_account_id")}
+                  />
+                  <div
+                    style={{
+                      fontSize: 11.5,
+                      color: "var(--ink-3)",
+                      marginTop: 6,
+                      lineHeight: 1.35,
+                    }}
+                  >
+                    UUID from{" "}
+                    <a
+                      href="https://app.metaapi.cloud/accounts"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      MetaAPI → Accounts
+                    </a>
+                    . Set <span className="mono">METAAPI_TOKEN</span> or{" "}
+                    <span className="mono">METAAPI_ACCESS_TOKEN</span> in{" "}
+                    <span className="mono">.env.local</span> for live balance,
+                    positions, and history.
+                  </div>
+                </div>
+              ) : null}
 
               <div className="sec-note">
                 <span className="ico">
