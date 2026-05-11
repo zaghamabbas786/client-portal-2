@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "node --max-http-header-size=65536 ./node_modules/next/dist/bin/next dev --turbopack",
+    "dev": "node --max-http-header-size=65536 ./node_modules/next/dist/bin/next dev",
+    "dev:turbo": "node --max-http-header-size=65536 ./node_modules/next/dist/bin/next dev --turbopack",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
@@ -11,6 +12,8 @@
   "dependencies": {
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.105.4",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.7",
     "next": "^15.5.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"

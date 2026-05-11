@@ -3,8 +3,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ProfileRow } from "@/lib/trading-account-mapper";
 import type { HistoryRow, PortalAccount, PositionRow } from "@/lib/portal-data";
 import { PortalData } from "@/lib/portal-data";
+import { sampleCurve } from "@/lib/equity-curve-sample";
 import { EquityChart, Sparkline } from "./charts";
-import { FlashNum, fmt, Ic } from "./primitives";
+import { FlashNum, fmt, Ic, LoadingButton } from "./primitives";
 
 const useP = useState;
 const useM = useMemo;
@@ -36,6 +37,75 @@ export function Dashboard({
   const periodPL = periodEnd - periodStart;
   const periodPct = periodStart ? (periodPL / periodStart) * 100 : 0;
 
+  const curvePdfSample = useM(() => sampleCurve(curve, 72), [curve]);
+  const [exporting, setExporting] = useP<null | "csv" | "pdf">(null);
+
+  async function exportDashboardCsv() {
+    if (exporting) return;
+    setExporting("csv");
+    try {
+      const { downloadDashboardCsv } = await import("@/lib/portal-export");
+      const scopeLabel =
+        activeAccountId === "all"
+          ? "All accounts"
+          : accounts.find((a) => a.id === activeAccountId)?.label ?? "—";
+
+      downloadDashboardCsv({
+      dataUpdatedAt,
+      rangeLabel: range,
+      scopeLabel,
+      summaryRows: [
+        ["Total equity", fmt.money(aggs.equity, "USD")],
+        ["Floating P&L", fmt.moneySigned(floating, "USD")],
+        ["Total P&L", fmt.moneySigned(aggs.totalPL, "USD")],
+        ["Total P&L %", fmt.pct(aggs.totalPLPct, 2)],
+        ["Today's P&L", fmt.moneySigned(aggs.todayPL, "USD")],
+        ["Today's P&L %", fmt.pct(aggs.todayPLPct, 2)],
+        ["Deposit base", fmt.money(aggs.deposit, "USD", { decimals: 0 })],
+        ["Period P&L (" + range + ")", fmt.moneySigned(periodPL, "USD")],
+        ["Period % (" + range + ")", fmt.pct(periodPct, 2)],
+      ],
+      curve,
+      positions: scopedPos,
+      accounts: scoped,
+    });
+    } finally {
+      setExporting(null);
+    }
+  }
+
+  async function exportDashboardPdf() {
+    if (exporting) return;
+    setExporting("pdf");
+    try {
+      const { downloadDashboardPdf } = await import("@/lib/portal-export");
+      const scopeLabel =
+        activeAccountId === "all"
+          ? "All accounts"
+          : accounts.find((a) => a.id === activeAccountId)?.label ?? "—";
+
+      downloadDashboardPdf({
+      dataUpdatedAt,
+      rangeLabel: range,
+      scopeLabel,
+      summaryRows: [
+        ["Total equity", fmt.money(aggs.equity, "USD")],
+        ["Floating P&L", fmt.moneySigned(floating, "USD")],
+        ["Total P&L", fmt.moneySigned(aggs.totalPL, "USD")],
+        ["Total P&L %", fmt.pct(aggs.totalPLPct, 2)],
+        ["Today's P&L", fmt.moneySigned(aggs.todayPL, "USD")],
+        ["Deposit base", fmt.money(aggs.deposit, "USD", { decimals: 0 })],
+        ["Period P&L (" + range + ")", fmt.moneySigned(periodPL, "USD")],
+      ],
+      curveSample: curvePdfSample,
+      positions: scopedPos,
+      accounts: scoped,
+    });
+    } finally {
+      setExporting(null);
+    }
+  }
+
   return (
     <>
       <div className="page-head">
@@ -45,7 +115,24 @@ export function Dashboard({
           <div className="page-sub">Snapshot across {scoped.filter(a => a.status === 'live').length} connected {scoped.filter(a => a.status === 'live').length === 1 ? 'account' : 'accounts'} · Last refresh {new Date(dataUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
         </div>
         <div className="page-actions">
-          <button className="btn"><Ic.download />Export</button>
+          <LoadingButton
+            onClick={exportDashboardCsv}
+            loading={exporting === "csv"}
+            loadingText="Exporting…"
+            disabled={exporting !== null}
+          >
+            <Ic.download />
+            CSV
+          </LoadingButton>
+          <LoadingButton
+            onClick={exportDashboardPdf}
+            loading={exporting === "pdf"}
+            loadingText="Exporting…"
+            disabled={exporting !== null}
+          >
+            <Ic.download />
+            PDF
+          </LoadingButton>
         </div>
       </div>
 
@@ -429,9 +516,14 @@ export function Settings({
               />
             </div>
             <div style={{ paddingTop: 4 }}>
-              <button type="submit" className="btn primary" disabled={busy}>
-                {busy ? "Saving…" : "Save changes"}
-              </button>
+              <LoadingButton
+                type="submit"
+                variant="primary"
+                loading={busy}
+                loadingText="Saving…"
+              >
+                Save changes
+              </LoadingButton>
             </div>
           </form>
         </div>
@@ -660,6 +752,44 @@ export function History({
 
   const symbols = Array.from(new Set(history.map(h => h.symbol))).sort();
 
+  const hasLiveAccount = accounts.some((a) => a.status === "live");
+  const hasMetaLinked = accounts.some(
+    (a) =>
+      a.status === "live" &&
+      !!(a.metaApiAccountId && String(a.metaApiAccountId).trim()),
+  );
+
+  const [exporting, setExporting] = useP<null | "csv" | "pdf">(null);
+
+  async function exportHistoryCsv() {
+    if (exporting) return;
+    setExporting("csv");
+    try {
+      const { downloadTradeHistoryCsv } = await import("@/lib/portal-export");
+      downloadTradeHistoryCsv(filtered);
+    } finally {
+      setExporting(null);
+    }
+  }
+
+  async function exportHistoryPdf() {
+    if (exporting) return;
+    setExporting("pdf");
+    try {
+      const { downloadTradeHistoryPdf } = await import("@/lib/portal-export");
+      const accountPart =
+        activeAccountId === "all"
+          ? "All accounts"
+          : accounts.find((a) => a.id === activeAccountId)?.label ?? "—";
+      downloadTradeHistoryPdf(
+        filtered,
+        `${filtered.length} filtered trades · period ${period} · ${accountPart} · snapshot ${fmt.dateTime(dataUpdatedAt)}`,
+      );
+    } finally {
+      setExporting(null);
+    }
+  }
+
   return (
     <>
       <div className="page-head">
@@ -667,10 +797,39 @@ export function History({
           <div className="eyebrow" style={{ marginBottom: 8 }}>Closed trades</div>
           <h1 className="page-title">Trade History</h1>
           <div className="page-sub">{filtered.length} trades · net <span className="mono" style={{ color: net >= 0 ? 'var(--up)' : 'var(--down)' }}>{fmt.moneySigned(net, 'USD')}</span> · win rate <span className="mono">{winRate.toFixed(1)}%</span> · data from refresh {new Date(dataUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
+          <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 8, maxWidth: 620, lineHeight: 1.45 }}>
+            Only real closed deals from MetaAPI are shown (no demo ledger). Link a MetaAPI account id on the broker row and set <span className="mono">METAAPI_TOKEN</span> or <span className="mono">METAAPI_ACCESS_TOKEN</span> on the server.
+          </div>
+          {history.length === 0 && hasLiveAccount && !hasMetaLinked ? (
+            <div style={{ fontSize: 12.5, color: 'var(--warn)', marginTop: 10, maxWidth: 560, lineHeight: 1.45 }}>
+              This account has no MetaAPI id yet, so history stays empty. Ask your administrator to add the UUID from MetaAPI when linking the broker account.
+            </div>
+          ) : null}
+          {history.length === 0 && hasMetaLinked ? (
+            <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 10, maxWidth: 560, lineHeight: 1.45 }}>
+              MetaAPI returned no closed deals in the loaded window, or the snapshot has not refreshed since linking.
+            </div>
+          ) : null}
         </div>
         <div className="page-actions">
-          <button className="btn"><Ic.download />CSV</button>
-          <button className="btn"><Ic.download />PDF</button>
+          <LoadingButton
+            onClick={exportHistoryCsv}
+            loading={exporting === "csv"}
+            loadingText="Exporting…"
+            disabled={exporting !== null}
+          >
+            <Ic.download />
+            CSV
+          </LoadingButton>
+          <LoadingButton
+            onClick={exportHistoryPdf}
+            loading={exporting === "pdf"}
+            loadingText="Exporting…"
+            disabled={exporting !== null}
+          >
+            <Ic.download />
+            PDF
+          </LoadingButton>
         </div>
       </div>
 
@@ -737,7 +896,25 @@ export function History({
             <th className="num">Net P&L</th>
           </tr></thead>
           <tbody>
-            {filtered.slice(0, 60).map(h => (
+            {filtered.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={10}
+                  style={{
+                    padding: 24,
+                    textAlign: "center",
+                    color: "var(--ink-3)",
+                  }}
+                >
+                  {history.length === 0
+                    ? hasMetaLinked
+                      ? "No closed deals from MetaAPI in this range."
+                      : "No trade history yet."
+                    : "No trades match your filters."}
+                </td>
+              </tr>
+            ) : (
+            filtered.slice(0, 60).map(h => (
               <tr key={h.id}>
                 <td className="mono" style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>{h.id}</td>
                 <td className="mono" style={{ fontWeight: 500 }}>{h.symbol}</td>
@@ -750,7 +927,8 @@ export function History({
                 <td className="num" style={{ color: 'var(--ink-3)' }}>{fmt.moneySigned(h.commission, 'USD')}</td>
                 <td className="num" style={{ color: h.net >= 0 ? 'var(--up)' : 'var(--down)', fontWeight: 500 }}>{fmt.moneySigned(h.net, 'USD')}</td>
               </tr>
-            ))}
+            ))
+            )}
           </tbody>
         </table>
         {filtered.length > 60 && (

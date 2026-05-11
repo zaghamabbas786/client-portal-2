@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { isPortalAdminRole } from "@/lib/auth/roles";
 import { ConnectModal } from "@/components/portal/connect-modal";
+import { LoadingButton, PageLoader } from "@/components/portal/primitives";
 import type { TradingAccountRow } from "@/lib/trading-account-mapper";
 
 type UserRow = {
@@ -16,20 +17,27 @@ export function AdminAccounts() {
   const [accounts, setAccounts] = useState<TradingAccountRow[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [uRes, aRes] = await Promise.all([
-      fetch("/api/admin/users"),
-      fetch("/api/admin/trading-accounts"),
-    ]);
-    const uj = await uRes.json();
-    const aj = await aRes.json();
-    if (!uRes.ok) setErr(uj.error || "Users load failed");
-    else if (!aRes.ok) setErr(aj.error || "Accounts load failed");
-    else {
-      setErr(null);
-      setUsers(uj.users ?? []);
-      setAccounts(aj.accounts ?? []);
+    setLoading(true);
+    try {
+      const [uRes, aRes] = await Promise.all([
+        fetch("/api/admin/users"),
+        fetch("/api/admin/trading-accounts"),
+      ]);
+      const uj = await uRes.json();
+      const aj = await aRes.json();
+      if (!uRes.ok) setErr(uj.error || "Users load failed");
+      else if (!aRes.ok) setErr(aj.error || "Accounts load failed");
+      else {
+        setErr(null);
+        setUsers(uj.users ?? []);
+        setAccounts(aj.accounts ?? []);
+      }
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -42,13 +50,19 @@ export function AdminAccounts() {
     .map((u) => ({ id: u.id, email: u.email || u.id }));
 
   async function removeAccount(id: string) {
+    if (removingId) return;
     if (!confirm("Remove this linked account from the client portal?")) return;
-    const res = await fetch(`/api/admin/trading-accounts?id=${encodeURIComponent(id)}`, {
-      method: "DELETE",
-    });
-    const j = await res.json();
-    if (!res.ok) setErr(j.error || "Delete failed");
-    else void load();
+    setRemovingId(id);
+    try {
+      const res = await fetch(`/api/admin/trading-accounts?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      const j = await res.json();
+      if (!res.ok) setErr(j.error || "Delete failed");
+      else await load();
+    } finally {
+      setRemovingId(null);
+    }
   }
 
   return (
@@ -86,6 +100,9 @@ export function AdminAccounts() {
           <h3 className="panel-title">Linked accounts</h3>
         </div>
         <div className="panel-body flush">
+          {loading ? (
+            <PageLoader inline label="Loading accounts" />
+          ) : (
           <table className="tbl">
               <thead>
                 <tr>
@@ -138,14 +155,16 @@ export function AdminAccounts() {
                         : "—"}
                     </td>
                     <td className="num">
-                      <button
-                        type="button"
-                        className="btn ghost"
+                      <LoadingButton
+                        variant="ghost"
+                        loading={removingId === a.id}
+                        loadingText="Removing…"
+                        disabled={removingId !== null && removingId !== a.id}
                         style={{ height: 30 }}
                         onClick={() => removeAccount(a.id)}
                       >
                         Remove
-                      </button>
+                      </LoadingButton>
                     </td>
                   </tr>
                   );
@@ -153,6 +172,7 @@ export function AdminAccounts() {
               )}
             </tbody>
           </table>
+          )}
         </div>
       </div>
 

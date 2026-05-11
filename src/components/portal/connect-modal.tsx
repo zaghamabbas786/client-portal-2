@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Ic } from "./primitives";
+import { Ic, LoadingButton, Spinner } from "./primitives";
 
 export function ConnectModal({
   onClose,
@@ -245,9 +245,13 @@ export function ConnectModal({
                 >
                   Cancel
                 </button>
-                <button type="submit" className="btn primary">
+                <LoadingButton
+                  type="submit"
+                  variant="primary"
+                  loading={false}
+                >
                   Connect account
-                </button>
+                </LoadingButton>
               </div>
             </div>
           </form>
@@ -262,17 +266,9 @@ export function ConnectModal({
               padding: "56px 24px",
             }}
           >
-            <div
-              style={{
-                width: 42,
-                height: 42,
-                border: "1.5px solid var(--rule)",
-                borderTopColor: "var(--accent)",
-                borderRadius: "50%",
-                animation: "spin 0.9s linear infinite",
-                margin: "0 auto 20px",
-              }}
-            />
+            <div style={{ margin: "0 auto 20px", display: "flex", justifyContent: "center" }}>
+              <Spinner size="lg" />
+            </div>
             <div
               style={{
                 fontFamily: "var(--serif)",
@@ -293,7 +289,6 @@ export function ConnectModal({
               Authenticating with {form.server || "broker"}… This usually takes
               under a minute.
             </div>
-            <style>{`@keyframes spin{to{transform:rotate(360deg);}}`}</style>
           </div>
         )}
 

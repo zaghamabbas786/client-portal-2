@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { BrandMark } from "./primitives";
+import { BrandMark, LoadingButton } from "./primitives";
 
 export function LoginScreen({
   onSignIn,
@@ -141,14 +141,15 @@ export function LoginScreen({
                 autoComplete="current-password"
               />
             </div>
-            <button
+            <LoadingButton
               type="submit"
-              className="btn primary"
+              variant="primary"
+              loading={busy}
+              loadingText="Signing in…"
               style={{ height: 40, marginTop: 4, justifyContent: "center" }}
-              disabled={busy}
             >
-              {busy ? "Signing in…" : "Sign in"}
-            </button>
+              Sign in
+            </LoadingButton>
           </form>
           <div className="login-meta">
             <span>Secured by TLS</span>

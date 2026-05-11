@@ -6,6 +6,8 @@ import React, { useCallback, useEffect, useState } from "react";
 
 import { normalizeStoredRole, type PortalRole } from "@/lib/auth/roles";
 
+import { LoadingButton, PageLoader } from "@/components/portal/primitives";
+
 
 
 type Row = {
@@ -37,6 +39,12 @@ export function AdminUsers() {
   const [msg, setMsg] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
+
+  const [creating, setCreating] = useState(false);
+
+  const [pendingRoleId, setPendingRoleId] = useState<string | null>(null);
+
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
 
 
@@ -76,6 +84,8 @@ export function AdminUsers() {
 
     e.preventDefault();
 
+    if (creating) return;
+
     const form = e.currentTarget;
 
     const fd = new FormData(form);
@@ -88,31 +98,41 @@ export function AdminUsers() {
 
     const role = fd.get("role") === "admin" ? "admin" : "standard";
 
-    const res = await fetch("/api/admin/users", {
+    setCreating(true);
 
-      method: "POST",
+    try {
 
-      headers: { "Content-Type": "application/json" },
+      const res = await fetch("/api/admin/users", {
 
-      body: JSON.stringify({ email, password, full_name, role }),
+        method: "POST",
 
-    });
+        headers: { "Content-Type": "application/json" },
 
-    const j = await res.json();
+        body: JSON.stringify({ email, password, full_name, role }),
 
-    if (!res.ok) {
+      });
 
-      setMsg(j.error || "Create failed");
+      const j = await res.json();
 
-      return;
+      if (!res.ok) {
+
+        setMsg(j.error || "Create failed");
+
+        return;
+
+      }
+
+      form.reset();
+
+      setMsg("User created.");
+
+      await load();
+
+    } finally {
+
+      setCreating(false);
 
     }
-
-    form.reset();
-
-    setMsg("User created.");
-
-    await load();
 
   }
 
@@ -120,25 +140,37 @@ export function AdminUsers() {
 
   async function setRole(id: string, role: PortalRole) {
 
-    const res = await fetch(`/api/admin/users/${id}`, {
+    if (pendingRoleId) return;
 
-      method: "PATCH",
+    setPendingRoleId(id);
 
-      headers: { "Content-Type": "application/json" },
+    try {
 
-      body: JSON.stringify({ role }),
+      const res = await fetch(`/api/admin/users/${id}`, {
 
-    });
+        method: "PATCH",
 
-    const j = await res.json();
+        headers: { "Content-Type": "application/json" },
 
-    if (!res.ok) setMsg(j.error || "Update failed");
+        body: JSON.stringify({ role }),
 
-    else {
+      });
 
-      setMsg("Role updated.");
+      const j = await res.json();
 
-      await load();
+      if (!res.ok) setMsg(j.error || "Update failed");
+
+      else {
+
+        setMsg("Role updated.");
+
+        await load();
+
+      }
+
+    } finally {
+
+      setPendingRoleId(null);
 
     }
 
@@ -148,19 +180,31 @@ export function AdminUsers() {
 
   async function removeUser(id: string) {
 
+    if (pendingDeleteId) return;
+
     if (!confirm("Delete this user and their linked account rows?")) return;
 
-    const res = await fetch(`/api/admin/users/${id}`, { method: "DELETE" });
+    setPendingDeleteId(id);
 
-    const j = await res.json();
+    try {
 
-    if (!res.ok) setMsg(j.error || "Delete failed");
+      const res = await fetch(`/api/admin/users/${id}`, { method: "DELETE" });
 
-    else {
+      const j = await res.json();
 
-      setMsg("User removed.");
+      if (!res.ok) setMsg(j.error || "Delete failed");
 
-      await load();
+      else {
+
+        setMsg("User removed.");
+
+        await load();
+
+      }
+
+    } finally {
+
+      setPendingDeleteId(null);
 
     }
 
@@ -276,11 +320,21 @@ export function AdminUsers() {
 
             </div>
 
-            <button type="submit" className="btn primary">
+            <LoadingButton
+
+              type="submit"
+
+              variant="primary"
+
+              loading={creating}
+
+              loadingText="Creating…"
+
+            >
 
               Create user
 
-            </button>
+            </LoadingButton>
 
           </form>
 
@@ -302,7 +356,7 @@ export function AdminUsers() {
 
           {loading ? (
 
-            <div style={{ padding: 24 }}>Loading…</div>
+            <PageLoader inline label="Loading users" />
 
           ) : (
 
@@ -340,43 +394,53 @@ export function AdminUsers() {
 
                     <td>
 
-                      <select
+                      <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
 
-                        value={normalizeStoredRole(u.profile?.role ?? "standard")}
+                        <select
 
-                        onChange={(e) =>
+                          value={normalizeStoredRole(u.profile?.role ?? "standard")}
 
-                          setRole(u.id, e.target.value as PortalRole)
+                          disabled={pendingRoleId === u.id}
 
-                        }
+                          onChange={(e) =>
 
-                        style={{
+                            setRole(u.id, e.target.value as PortalRole)
 
-                          fontFamily: "var(--mono)",
+                          }
 
-                          fontSize: 12,
+                          style={{
 
-                          padding: "6px 8px",
+                            fontFamily: "var(--mono)",
 
-                        }}
+                            fontSize: 12,
 
-                      >
+                            padding: "6px 8px",
 
-                        <option value="standard">Standard</option>
+                          }}
 
-                        <option value="admin">Administrator</option>
+                        >
 
-                      </select>
+                          <option value="standard">Standard</option>
+
+                          <option value="admin">Administrator</option>
+
+                        </select>
+
+                        {pendingRoleId === u.id && <span className="spinner spinner--sm" aria-label="Updating role" />}
+
+                      </div>
 
                     </td>
 
                     <td className="num">
 
-                      <button
+                      <LoadingButton
 
-                        type="button"
+                        variant="ghost"
 
-                        className="btn ghost"
+                        loading={pendingDeleteId === u.id}
+
+                        loadingText="Removing…"
 
                         style={{ height: 30 }}
 
@@ -386,7 +450,7 @@ export function AdminUsers() {
 
                         Remove
 
-                      </button>
+                      </LoadingButton>
 
                     </td>
 

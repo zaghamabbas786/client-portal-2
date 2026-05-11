@@ -1,11 +1,16 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createClient } from "@/lib/supabase/client";
-import {
-  isEffectivePortalAdmin,
-  sessionPortalRoleHint,
-} from "@/lib/auth/roles";
+import { isEffectivePortalAdmin } from "@/lib/auth/roles";
 import { PortalData } from "@/lib/portal-data";
 import {
   rowToPortalAccount,
@@ -15,36 +20,29 @@ import {
 import type { PortalAccount, HistoryRow, PositionRow } from "@/lib/portal-data";
 import type { Session } from "@supabase/supabase-js";
 import { LoginScreen } from "./login-screen";
-import {
-  Accounts,
-  Dashboard,
-  History,
-  Positions,
-  Settings,
-} from "./portal-pages";
+import { Dashboard } from "./portal-pages";
+import { PageLoader } from "./primitives";
 import { Sidebar, Topbar } from "./shell";
 
-/** Browser console + pings server debug route when true (see NEXT_PUBLIC_ENABLE_PORTAL_DEBUG). */
-const PORTAL_ROLE_DEBUG_UI =
-  process.env.NODE_ENV === "development" ||
-  process.env.NEXT_PUBLIC_ENABLE_PORTAL_DEBUG === "true";
+/** Non-default routes are loaded on demand to keep initial chunk small. */
+const Accounts = lazy(() =>
+  import("./portal-pages").then((m) => ({ default: m.Accounts })),
+);
+const History = lazy(() =>
+  import("./portal-pages").then((m) => ({ default: m.History })),
+);
+const Positions = lazy(() =>
+  import("./portal-pages").then((m) => ({ default: m.Positions })),
+);
+const Settings = lazy(() =>
+  import("./portal-pages").then((m) => ({ default: m.Settings })),
+);
 
-/** Server logs to terminal: GET /api/debug/portal-role during dev or when ENABLED (see env). */
-async function pingDebugPortalRoleTerminal(): Promise<void> {
-  if (!PORTAL_ROLE_DEBUG_UI) return;
-  try {
-    const res = await fetch("/api/debug/portal-role", {
-      credentials: "same-origin",
-    });
-    const body = await res.json().catch(() => ({}));
-    console.info("[portal-app] /api/debug/portal-role:", body);
-  } catch {
-    console.warn("[portal-app] /api/debug/portal-role request failed");
-  }
-}
+/** Minimum interval between auto-refetches on tab focus / auth events. */
+const REFRESH_MIN_INTERVAL_MS = 15_000;
 
-/** Meta snapshot can wait on upstream MetaAPI; never block UI indefinitely */
-const METAPI_SNAPSHOT_CLIENT_MS = 32_000;
+/** Meta overlay; keep short — baseline UI already paints from DB. */
+const METAPI_SNAPSHOT_CLIENT_MS = 12_000;
 
 function abortSignalAfter(ms: number): { signal: AbortSignal; clear: () => void } {
   if (typeof AbortSignal !== "undefined" && "timeout" in AbortSignal) {
@@ -62,7 +60,8 @@ async function hydrateFromMetaSnapshot(
   mapped: PortalAccount[],
 ): Promise<{ accounts: PortalAccount[]; positions: PositionRow[]; history: HistoryRow[] }> {
   const mockPositions = PortalData.genPositions(mapped);
-  const mockHistory = PortalData.genHistory(mapped, 140);
+  /** Closed trades come only from MetaAPI deals — no synthetic ledger. */
+  const emptyHistory: HistoryRow[] = [];
 
   const { signal, clear } = abortSignalAfter(METAPI_SNAPSHOT_CLIENT_MS);
 
@@ -82,7 +81,7 @@ async function hydrateFromMetaSnapshot(
       return {
         accounts: mapped,
         positions: mockPositions,
-        history: mockHistory,
+        history: emptyHistory,
       };
     }
 
@@ -99,11 +98,8 @@ async function hydrateFromMetaSnapshot(
 
     const metaPos = Array.isArray(j.positions) ? j.positions : [];
 
-    const mockHistOnlyMeta = PortalData.genHistory(liveNoMeta, 140);
     const metaHist = Array.isArray(j.history) ? j.history : [];
-    const history = [...metaHist, ...mockHistOnlyMeta].sort(
-      (a, b) => b.closeTime - a.closeTime,
-    );
+    const history = metaHist.sort((a, b) => b.closeTime - a.closeTime);
 
     return {
       accounts: mergedAccounts,
@@ -114,7 +110,7 @@ async function hydrateFromMetaSnapshot(
     return {
       accounts: mapped,
       positions: mockPositions,
-      history: mockHistory,
+      history: emptyHistory,
     };
   } finally {
     clear();
@@ -150,9 +146,7 @@ export function PortalApp() {
   const [positions, setPositions] = useState(() =>
     PortalData.genPositions([]),
   );
-  const [history, setHistory] = useState(() =>
-    PortalData.genHistory([], 140),
-  );
+  const [history, setHistory] = useState<HistoryRow[]>([]);
   const [dataUpdatedAt, setDataUpdatedAt] = useState(() => Date.now());
 
   /** Server-derived admin (cookies); fixes sidebar when client profile state lags behind DB */
@@ -160,11 +154,6 @@ export function PortalApp() {
 
   const bindUserIdentity = useCallback(
     async (sb: NonNullable<typeof supabaseClient>, authUserId: string) => {
-      const { error: guErr } = await sb.auth.getUser();
-      if (guErr) console.warn("auth.getUser:", guErr.message);
-      const {
-        data: { session: curSession },
-      } = await sb.auth.getSession();
       const { data: prof, error: profErr } = await sb
         .from("profiles")
         .select("*")
@@ -172,57 +161,46 @@ export function PortalApp() {
         .maybeSingle();
       if (profErr) console.error(profErr);
       setProfile(((prof ?? null) as ProfileRow | null) ?? null);
-      if (PORTAL_ROLE_DEBUG_UI) {
-        console.info("[portal-app] bindUserIdentity", {
-          authUserId,
-          profileFetched: !!prof,
-          profilesError: profErr?.message ?? null,
-          rawRole:
-            typeof prof === "object" &&
-            prof !== null &&
-            "role" in prof
-              ? String((prof as { role?: unknown }).role)
-              : null,
-          jwtPortalHintClient: sessionPortalRoleHint(curSession ?? null),
-          isEffectivePortalAdminClient: isEffectivePortalAdmin(
-            prof ?? null,
-            curSession ?? null,
-          ),
-        });
-        void pingDebugPortalRoleTerminal();
-      }
     },
     [],
   );
 
   const loadPortalData = useCallback(
     async (sb: NonNullable<typeof supabaseClient>, uid: string) => {
-      try {
-        const applyRows = async (raw: unknown[]) => {
-          const mapped = raw.map((r) =>
-            rowToPortalAccount(r as TradingAccountRow),
-          );
-          const merged = await hydrateFromMetaSnapshot(mapped);
-          setAccounts(merged.accounts);
-          setPositions(merged.positions);
-          setHistory(merged.history);
-          setDataUpdatedAt(Date.now());
-        };
+      const applyBaselineThenMeta = (mapped: PortalAccount[]) => {
+        setAccounts(mapped);
+        setPositions(PortalData.genPositions(mapped));
+        setHistory([]);
+        setDataUpdatedAt(Date.now());
 
+        void hydrateFromMetaSnapshot(mapped)
+          .then((merged) => {
+            setAccounts(merged.accounts);
+            setPositions(merged.positions);
+            setHistory(merged.history);
+            setDataUpdatedAt(Date.now());
+          })
+          .catch((e) =>
+            console.error("[portal-app] Meta snapshot overlay failed:", e),
+          );
+      };
+
+      try {
         const res = await fetch("/api/portal/trading-accounts", {
           credentials: "same-origin",
         });
 
         if (res.ok) {
-          const j = (await res.json()) as {
-            rows?: unknown[];
-          };
-          await applyRows(j.rows ?? []);
+          const j = (await res.json()) as { rows?: unknown[] };
+          const mapped = (j.rows ?? []).map((r) =>
+            rowToPortalAccount(r as TradingAccountRow),
+          );
+          applyBaselineThenMeta(mapped);
           return;
         }
 
         if (res.status === 401) {
-          await applyRows([]);
+          applyBaselineThenMeta([]);
           return;
         }
 
@@ -231,7 +209,7 @@ export function PortalApp() {
           res.status,
         );
 
-        const { data: rows, error } = await sb
+        const { data, error } = await sb
           .from("trading_accounts")
           .select("*")
           .eq("user_id", uid)
@@ -240,7 +218,9 @@ export function PortalApp() {
           console.error(error);
           return;
         }
-        await applyRows(rows ?? []);
+        applyBaselineThenMeta(
+          (data ?? []).map((r) => rowToPortalAccount(r as TradingAccountRow)),
+        );
       } catch (e) {
         console.error(e);
       }
@@ -252,69 +232,117 @@ export function PortalApp() {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
 
+  /**
+   * Tracks the last load + an in-flight promise so concurrent callers (React
+   * StrictMode double-mount, INITIAL_SESSION + bootstrap race, TOKEN_REFRESHED)
+   * share one fetch instead of duplicating it.
+   */
+  const lastLoadedForUserRef = useRef<string | null>(null);
+  const lastLoadedAtRef = useRef<number>(0);
+  const inFlightRef = useRef<Promise<void> | null>(null);
+
+  const ensureLoaded = useCallback(
+    (
+      sb: NonNullable<typeof supabaseClient>,
+      uid: string,
+      force = false,
+    ): Promise<void> => {
+      const sameUser = lastLoadedForUserRef.current === uid;
+      const recent = Date.now() - lastLoadedAtRef.current < REFRESH_MIN_INTERVAL_MS;
+
+      if (inFlightRef.current && sameUser) return inFlightRef.current;
+      if (!force && sameUser && recent) return Promise.resolve();
+
+      lastLoadedForUserRef.current = uid;
+      lastLoadedAtRef.current = Date.now();
+      const p = Promise.all([
+        bindUserIdentity(sb, uid),
+        loadPortalData(sb, uid),
+      ])
+        .then(() => undefined)
+        .finally(() => {
+          if (inFlightRef.current === p) inFlightRef.current = null;
+        });
+      inFlightRef.current = p;
+      return p;
+    },
+    [bindUserIdentity, loadPortalData],
+  );
+
   useEffect(() => {
     if (!supabaseClient) return;
 
+    let cancelled = false;
+    /** Avoid re-running on the implicit INITIAL_SESSION event that fires right after bootstrap. */
+    let bootstrapped = false;
+
     void (async () => {
-      // If auth or profile never resolves, still leave the loading screen.
       const watchdog = window.setTimeout(() => {
-        setHydrated(true);
-      }, 15_000);
+        if (!cancelled) setHydrated(true);
+      }, 8_000);
       try {
         const {
           data: { session: s },
         } = await supabaseClient.auth.getSession();
+        if (cancelled) return;
         setSession(s);
+        // Unblock the shell before data loads — UI paints with empty state,
+        // then accounts/positions fill in below.
+        setHydrated(true);
         if (s?.user) {
-          await bindUserIdentity(supabaseClient, s.user.id);
-          void loadPortalData(supabaseClient, s.user.id);
+          await ensureLoaded(supabaseClient, s.user.id, true);
         }
       } catch (e) {
         console.error(e);
       } finally {
         window.clearTimeout(watchdog);
-        setHydrated(true);
+        bootstrapped = true;
+        if (!cancelled) setHydrated(true);
       }
     })();
 
     const {
       data: { subscription },
-    } = supabaseClient.auth.onAuthStateChange(async (_event, s) => {
+    } = supabaseClient.auth.onAuthStateChange((event, s) => {
+      // Ignore the synthetic INITIAL_SESSION fired right after bootstrap path.
+      if (!bootstrapped && event === "INITIAL_SESSION") return;
       setSession(s);
-      try {
-        if (s?.user) {
-          await bindUserIdentity(supabaseClient, s.user.id);
-          void loadPortalData(supabaseClient, s.user.id);
-        } else {
-          setProfile(null);
-          setAccounts([]);
-          setPositions(PortalData.genPositions([]));
-          setHistory(PortalData.genHistory([], 140));
-        }
-      } catch (e) {
-        console.error(e);
+      if (s?.user) {
+        void ensureLoaded(supabaseClient, s.user.id, event === "SIGNED_IN");
+      } else {
+        lastLoadedForUserRef.current = null;
+        lastLoadedAtRef.current = 0;
+        setProfile(null);
+        setAccounts([]);
+        setPositions(PortalData.genPositions([]));
+        setHistory([]);
       }
     });
 
-    return () => subscription.unsubscribe();
-  }, [supabaseClient, loadPortalData, bindUserIdentity]);
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, [supabaseClient, ensureLoaded]);
 
   useEffect(() => {
     if (!supabaseClient || !session?.user?.id) return;
 
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
-      const uid = session.user!.id;
-      void bindUserIdentity(supabaseClient, uid);
-      void loadPortalData(supabaseClient, uid);
+      void ensureLoaded(supabaseClient, session.user!.id);
     };
 
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [supabaseClient, session?.user?.id, bindUserIdentity, loadPortalData]);
+  }, [supabaseClient, session?.user?.id, ensureLoaded]);
 
+  const sessionUserId = session?.user?.id;
+  /** Server admin lookup is cheap (Cache-Control: private, max-age=30) and the
+   *  answer is identical for a given user id, so depending on profile?.role
+   *  here just caused a redundant call when bindUserIdentity finished. */
   useEffect(() => {
-    if (!session?.user?.id) {
+    if (!sessionUserId) {
       setAdminFromServer(null);
       return;
     }
@@ -332,7 +360,7 @@ export function PortalApp() {
       }
     })();
     return () => ac.abort();
-  }, [session?.user?.id, profile?.role]);
+  }, [sessionUserId]);
 
   useEffect(() => {
     setAccounts((prev) =>
@@ -396,17 +424,8 @@ export function PortalApp() {
 
   if (!hydrated || !supabaseClient) {
     return (
-      <div
-        className="app"
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "var(--ink-3)",
-        }}
-      >
-        Loading…
+      <div className="app">
+        <PageLoader label="Loading portal" />
       </div>
     );
   }
@@ -447,45 +466,47 @@ export function PortalApp() {
               dataUpdatedAt={dataUpdatedAt}
             />
           )}
-          {route === "accounts" && (
-            <Accounts
-              accounts={accounts}
-              onSelect={(id) => {
-                setActiveAccountId(id);
-                setRoute("positions");
-              }}
-              dataUpdatedAt={dataUpdatedAt}
-            />
-          )}
-          {route === "positions" && (
-            <Positions
-              accounts={accounts}
-              positions={positions}
-              activeAccountId={activeAccountId}
-              setActiveAccountId={setActiveAccountId}
-              dataUpdatedAt={dataUpdatedAt}
-            />
-          )}
-          {route === "history" && (
-            <History
-              accounts={accounts}
-              history={history}
-              activeAccountId={activeAccountId}
-              setActiveAccountId={setActiveAccountId}
-              dataUpdatedAt={dataUpdatedAt}
-            />
-          )}
-          {route === "settings" && supabaseClient && session.user && (
-            <Settings
-              supabase={supabaseClient}
-              userId={session.user.id}
-              profile={profile}
-              authEmail={session.user.email ?? ""}
-              onProfileRefresh={() =>
-                bindUserIdentity(supabaseClient, session.user!.id)
-              }
-            />
-          )}
+          <Suspense fallback={<PageLoader inline label="Loading" />}>
+            {route === "accounts" && (
+              <Accounts
+                accounts={accounts}
+                onSelect={(id) => {
+                  setActiveAccountId(id);
+                  setRoute("positions");
+                }}
+                dataUpdatedAt={dataUpdatedAt}
+              />
+            )}
+            {route === "positions" && (
+              <Positions
+                accounts={accounts}
+                positions={positions}
+                activeAccountId={activeAccountId}
+                setActiveAccountId={setActiveAccountId}
+                dataUpdatedAt={dataUpdatedAt}
+              />
+            )}
+            {route === "history" && (
+              <History
+                accounts={accounts}
+                history={history}
+                activeAccountId={activeAccountId}
+                setActiveAccountId={setActiveAccountId}
+                dataUpdatedAt={dataUpdatedAt}
+              />
+            )}
+            {route === "settings" && supabaseClient && session.user && (
+              <Settings
+                supabase={supabaseClient}
+                userId={session.user.id}
+                profile={profile}
+                authEmail={session.user.email ?? ""}
+                onProfileRefresh={() =>
+                  bindUserIdentity(supabaseClient, session.user!.id)
+                }
+              />
+            )}
+          </Suspense>
         </div>
       </div>
     </div>

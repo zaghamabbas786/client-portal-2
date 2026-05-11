@@ -792,7 +792,7 @@ input, select, textarea { font-family: inherit; color: inherit; }
 .main { min-width: 0; }
 .page { padding: 28px 32px 64px; max-width: 1600px; }
 .page-head {
-  display: flex; align-items: end; justify-content: space-between; gap: 24px;
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 24px;
   margin-bottom: 28px;
   padding-bottom: 20px;
   border-bottom: 1px solid var(--rule);
@@ -813,7 +813,7 @@ input, select, textarea { font-family: inherit; color: inherit; }
   border: 1px solid var(--rule);
   background: var(--surface);
   color: var(--ink);
-  transition: background .15s, border-color .15s;
+  transition: background .15s, border-color .15s, opacity .15s;
 }
 .btn:hover { background: var(--surface-hover); border-color: var(--rule-strong); }
 .btn.primary {
@@ -823,6 +823,54 @@ input, select, textarea { font-family: inherit; color: inherit; }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--ink-2); }
 .btn.ghost:hover { background: var(--surface-hover); color: var(--ink); }
 .btn .ico { width: 14px; height: 14px; }
+.btn[disabled],
+.btn[aria-busy="true"] {
+  cursor: not-allowed; opacity: 0.72;
+}
+.btn[disabled]:hover,
+.btn[aria-busy="true"]:hover {
+  background: var(--surface); border-color: var(--rule);
+}
+.btn.primary[disabled]:hover,
+.btn.primary[aria-busy="true"]:hover {
+  background: var(--accent); border-color: var(--accent);
+}
+
+/* ---------- loaders ---------- */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  display: inline-block;
+  width: 16px; height: 16px;
+  border: 1.5px solid var(--rule-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+  flex: none;
+}
+.spinner--sm { width: 12px; height: 12px; border-width: 1.25px; }
+.spinner--lg { width: 32px; height: 32px; border-width: 2px; }
+.spinner--inverse {
+  border-color: rgba(255,255,255,0.32);
+  border-top-color: #fff;
+}
+.btn.primary .spinner { border-color: rgba(255,255,255,0.32); border-top-color: #fff; }
+
+.page-loader {
+  min-height: 100vh;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 12px;
+  color: var(--ink-3);
+  font-size: 13px;
+  background: var(--bg);
+}
+.page-loader--inline { min-height: 240px; padding: 32px; }
+.page-loader__label {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
 
 /* ---------- kpi cards ---------- */
 .kpi-grid {
@@ -951,7 +999,7 @@ input, select, textarea { font-family: inherit; color: inherit; }
   transition: border-color .15s, background .15s;
 }
 .account-card:hover { border-color: var(--rule-strong); }
-.account-card .acc-head { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+.account-card .acc-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .account-card .acc-brand {
   font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--ink-3);
@@ -1013,7 +1061,7 @@ input, select, textarea { font-family: inherit; color: inherit; }
 .modal-head {
   padding: 20px 24px 16px;
   border-bottom: 1px solid var(--rule);
-  display: flex; justify-content: space-between; align-items: start;
+  display: flex; justify-content: space-between; align-items: flex-start;
 }
 .modal-title { font-family: var(--serif); font-weight: 400; font-size: 20px; letter-spacing: -0.01em; margin: 0; }
 .modal-sub { font-size: 13px; color: var(--ink-3); margin-top: 4px; }
@@ -1049,7 +1097,7 @@ input, select, textarea { font-family: inherit; color: inherit; }
 .field input.mono, .field select.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .sec-note {
-  display: flex; gap: 10px; align-items: start;
+  display: flex; gap: 10px; align-items: flex-start;
   padding: 10px 14px;
   background: var(--surface-2); border: 1px solid var(--rule); border-radius: var(--radius);
   font-size: 12px; color: var(--ink-2); line-height: 1.5;

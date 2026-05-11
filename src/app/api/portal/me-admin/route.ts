@@ -1,7 +1,7 @@
 import { isEffectivePortalAdmin } from "@/lib/auth/roles";
 import { createClient } from "@/lib/supabase/server";
 
-/** Same admin check as `/api/debug/portal-role` but tiny JSON for the client sidebar. */
+/** Tiny JSON for the client sidebar admin check. */
 export const dynamic = "force-dynamic";
 
 export async function GET() {
@@ -10,16 +10,23 @@ export async function GET() {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    return Response.json({ admin: false });
+    return Response.json(
+      { admin: false },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   }
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("id", user.id)
-    .maybeSingle();
-  const admin = isEffectivePortalAdmin(profile, session ?? null);
-  return Response.json({ admin });
+  // Session + profile in parallel — session is only needed for JWT role hint.
+  const [{ data: sessionData }, { data: profile }] = await Promise.all([
+    supabase.auth.getSession(),
+    supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle(),
+  ]);
+  const admin = isEffectivePortalAdmin(profile, sessionData.session ?? null);
+  return Response.json(
+    { admin },
+    { headers: { "Cache-Control": "private, max-age=30" } },
+  );
 }

@@ -109,7 +109,8 @@ export async function GET() {
   }
 
   const end = new Date().toISOString();
-  const start = new Date(Date.now() - 90 * 86400_000).toISOString();
+  /** Allow 1Y filter in portal; MetaAPI returns closed deals in window. */
+  const start = new Date(Date.now() - 400 * 86400_000).toISOString();
 
   const settled = await Promise.allSettled(
     linked.map(async (row) => {
@@ -132,7 +133,7 @@ export async function GET() {
         .map((p) => metaPositionToRow(p, baseline.id))
         .filter((x): x is NonNullable<typeof x> => x != null);
 
-      const history = metaDealsToHistory(deals, baseline.id, 180);
+      const history = metaDealsToHistory(deals, baseline.id, 600);
 
       return { patches, positions, history };
     }),
@@ -150,7 +151,7 @@ export async function GET() {
   }
 
   history.sort((a, b) => b.closeTime - a.closeTime);
-  const historyTrimmed = history.slice(0, 200);
+  const historyTrimmed = history.slice(0, 600);
 
   return Response.json({
     live: true as const,
