@@ -240,45 +240,8 @@ export const Ic = {
   ),
 };
 
-/** Inline circular spinner. Size variants `sm` / `md` / `lg`. */
-export function Spinner({
-  size = "md",
-  inverse = false,
-  className = "",
-  label,
-}: {
-  size?: "sm" | "md" | "lg";
-  inverse?: boolean;
-  className?: string;
-  label?: string;
-}) {
-  const sizeClass =
-    size === "sm" ? "spinner--sm" : size === "lg" ? "spinner--lg" : "";
-  return (
-    <span
-      role="status"
-      aria-live="polite"
-      aria-label={label ?? "Loading"}
-      className={`spinner ${sizeClass} ${inverse ? "spinner--inverse" : ""} ${className}`.trim()}
-    />
-  );
-}
-
-/** Full-height (or inline) loading screen with an optional caption. */
-export function PageLoader({
-  label = "Loading",
-  inline = false,
-}: {
-  label?: string;
-  inline?: boolean;
-}) {
-  return (
-    <div className={`page-loader ${inline ? "page-loader--inline" : ""}`.trim()}>
-      <Spinner size="lg" />
-      {label && <span className="page-loader__label">{label}</span>}
-    </div>
-  );
-}
+export { Spinner, PageLoader } from "./loaders";
+import { Spinner } from "./loaders";
 
 /** Button that shows a spinner + disables itself while `loading` is true. */
 export const LoadingButton = React.forwardRef<
