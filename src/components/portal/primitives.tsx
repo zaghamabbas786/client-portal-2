@@ -298,7 +298,7 @@ export function BrandMark({ size = 26 }: { size?: number }) {
       }}
     >
       <Image
-        src="/vivid-capital-logo.png"
+        src="/vivid-capital-logo-transparent.png"
         alt="Vivid Capital"
         width={640}
         height={256}

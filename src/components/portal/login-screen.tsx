@@ -24,7 +24,7 @@ export function LoginScreen({
     <div className="login-wrap">
       <aside className="login-aside">
         <div className="login-aside-brand">
-          <BrandMark size={40} />
+          <BrandMark size={54} />
           <div
             className="mono"
             style={{
@@ -51,8 +51,7 @@ export function LoginScreen({
               lineHeight: 1.6,
             }}
           >
-            Your administrator connects broker accounts to this portal; you
-            view balances, equity, positions, and P&amp;L on refresh.
+            Real-time portfolio monitoring across all connected accounts.
           </p>
         </div>
 

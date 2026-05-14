@@ -600,9 +600,9 @@
   --ink-4: #3F4A5F;
 
   /* Semantic */
-  --accent: #3B82F6;
-  --accent-2: #60A5FA;
-  --accent-soft: rgba(59, 130, 246, 0.12);
+  --accent: #1A9FD9;
+  --accent-2: #1489BD;
+  --accent-soft: rgba(26, 159, 217, 0.12);
   --up: #3DD68C;
   --up-soft: rgba(61, 214, 140, 0.12);
   --down: #F06A6A;
@@ -630,9 +630,9 @@
   --ink-3: #6B7689;
   --ink-4: #A8AEBB;
 
-  --accent: #2E6FE8;
-  --accent-2: #1D55C7;
-  --accent-soft: rgba(46, 111, 232, 0.08);
+  --accent: #0F8DC0;
+  --accent-2: #0C74A0;
+  --accent-soft: rgba(15, 141, 192, 0.10);
   --up: #1F9A5F;
   --up-soft: rgba(31, 154, 95, 0.10);
   --down: #C83A3A;

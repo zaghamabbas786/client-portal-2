@@ -36,7 +36,7 @@ export function Sidebar({
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
-        <BrandMark size={30} />
+        <BrandMark size={42} />
       </div>
 
       <div className="nav-section">Overview</div>
