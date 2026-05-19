@@ -73,8 +73,14 @@ async function metaPost<T>(
       return { ok: false, status: res.status, body: "invalid JSON from MetaAPI" };
     }
   } catch (e) {
-    const msg =
-      e instanceof Error ? e.message : typeof e === "string" ? e : "fetch failed";
+    let msg = "fetch failed";
+    if (e instanceof Error) {
+      msg = e.message;
+      const cause = (e as Error & { cause?: unknown }).cause;
+      if (cause instanceof Error) msg += ` — cause: ${cause.message}`;
+    } else if (typeof e === "string") {
+      msg = e;
+    }
     return { ok: false, status: 0, body: msg.slice(0, 500) };
   }
 }
