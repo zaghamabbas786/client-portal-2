@@ -11,7 +11,6 @@ import React, {
 } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { isEffectivePortalAdmin } from "@/lib/auth/roles";
-import { PortalData } from "@/lib/portal-data";
 import {
   rowToPortalAccount,
   type ProfileRow,
@@ -125,9 +124,7 @@ export function PortalApp() {
   const [theme, setTheme] = useState("dark");
 
   const [accounts, setAccounts] = useState<PortalAccount[]>([]);
-  const [positions, setPositions] = useState(() =>
-    [],
-  );
+  const [positions, setPositions] = useState<PositionRow[]>([]);
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [dataUpdatedAt, setDataUpdatedAt] = useState(() => Date.now());
 

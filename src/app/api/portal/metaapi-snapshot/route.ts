@@ -127,7 +127,22 @@ export async function GET() {
       const posList = posRes.ok ? normalizePositionArray(posRes.data) : [];
       const deals = dealsRes.ok ? normalizeDealArray(dealsRes.data) : [];
 
-      const patches = portalPatchFromMeta(baseline, info);
+      // Compute equity from balance + floating P&L (profit + swap) of open positions.
+      // Some brokers (e.g. FTMO) return the floating P&L in MetaAPI's equity field
+      // instead of the actual account equity, so we derive it ourselves when possible.
+      let effectiveInfo = info;
+      if (info && typeof info.balance === "number") {
+        const floating = posList.reduce(
+          (s, p) =>
+            s +
+            (typeof p.profit === "number" ? p.profit : 0) +
+            (typeof p.swap === "number" ? p.swap : 0),
+          0,
+        );
+        effectiveInfo = { ...info, equity: +(info.balance + floating).toFixed(2) };
+      }
+
+      const patches = portalPatchFromMeta(baseline, effectiveInfo);
 
       const positions = posList
         .map((p) => metaPositionToRow(p, baseline.id))
