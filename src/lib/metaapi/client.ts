@@ -118,7 +118,12 @@ export async function provisionMetaApiAccount(data: {
 }): Promise<{ ok: true; data: { id: string; region: string } } | { ok: false; status: number; body: string }> {
   const provUrl = getMetaApiProvisioningUrl();
 
-  type ProvAccount = { id: string; login: string | number; server: string; region?: string };
+  // MetaAPI list endpoint returns _id (with underscore); POST creation response returns id.
+  type ProvAccount = { _id?: string; id?: string; login: string | number; server: string; region?: string; state?: string };
+
+  function extractId(a: ProvAccount): string {
+    return (a._id || a.id || "").trim();
+  }
 
   // Check if the account is already provisioned in MetaAPI.
   const listRes = await metaGet<ProvAccount[]>("/users/current/accounts", provUrl);
@@ -127,14 +132,17 @@ export async function provisionMetaApiAccount(data: {
       (a) => String(a.login) === data.login && a.server === data.server,
     );
     if (existing) {
+      const id = extractId(existing);
       const region = existing.region || "new-york";
-      console.log(`[metaapi] Found existing account ${existing.id} region=${region}`);
-      return { ok: true, data: { id: existing.id, region } };
+      console.log(`[metaapi] Found existing account ${id} region=${region} state=${existing.state}`);
+      if (id) return { ok: true, data: { id, region } };
     }
   }
 
   // Create a new MetaAPI account.
-  const createRes = await metaPost<{ id: string }>(
+  // MetaAPI returns 202 Accepted while validating credentials (not 201).
+  // The 202 body is NOT the account object — re-list to find the new account.
+  const createRes = await metaPost<ProvAccount>(
     provUrl,
     "/users/current/accounts",
     {
@@ -143,17 +151,36 @@ export async function provisionMetaApiAccount(data: {
       server: data.server,
       platform: data.platform,
       name: data.name,
+      magic: 0,
       reliability: "regular",
     },
   );
+
+  // 202 means "validation in progress" — account was accepted, re-list to find the UUID.
+  // 201 means created immediately — response body has the account object.
   if (!createRes.ok) return createRes;
 
-  // Fetch the newly created account to get its region.
-  const detailRes = await metaGet<ProvAccount>(
-    `/users/current/accounts/${encodeURIComponent(createRes.data.id)}`,
-    provUrl,
-  );
-  const region = detailRes.ok ? (detailRes.data.region || "new-york") : "new-york";
-  console.log(`[metaapi] Provisioned account ${createRes.data.id} region=${region}`);
-  return { ok: true, data: { id: createRes.data.id, region } };
+  // If the POST returned the account object directly (201), try to use it.
+  const directId = extractId(createRes.data);
+  if (directId) {
+    const region = createRes.data.region || "new-york";
+    console.log(`[metaapi] Provisioned account ${directId} region=${region}`);
+    return { ok: true, data: { id: directId, region } };
+  }
+
+  // 202 case: re-list to find the newly accepted account.
+  const listRes2 = await metaGet<ProvAccount[]>("/users/current/accounts", provUrl);
+  if (listRes2.ok && Array.isArray(listRes2.data)) {
+    const found = listRes2.data.find(
+      (a) => String(a.login) === data.login && a.server === data.server,
+    );
+    if (found) {
+      const id = extractId(found);
+      const region = found.region || "new-york";
+      console.log(`[metaapi] Provisioned account (202 flow) ${id} region=${region} state=${found.state}`);
+      if (id) return { ok: true, data: { id, region } };
+    }
+  }
+
+  return { ok: false, status: 202, body: "Account accepted by MetaAPI but UUID not yet available — retry in a minute" };
 }
