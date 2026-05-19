@@ -99,6 +99,8 @@ export async function GET() {
     return id.length > 0;
   });
 
+  console.log(`[metaapi-snapshot] user=${user.id} total_accounts=${(rows ?? []).length} linked_with_metaapi_id=${linked.length}`);
+
   if (linked.length === 0) {
     return Response.json({
       live: true as const,
@@ -122,6 +124,17 @@ export async function GET() {
         fetchOpenPositions(metaId),
         fetchHistoryDeals(metaId, start, end),
       ]);
+
+      if (!infoRes.ok) {
+        console.error(`[metaapi-snapshot] account-information failed for ${metaId}: status=${infoRes.status} body=${infoRes.body}`);
+      } else {
+        console.log(`[metaapi-snapshot] account-information for ${metaId}:`, JSON.stringify(infoRes.data));
+      }
+      if (!posRes.ok) {
+        console.error(`[metaapi-snapshot] positions failed for ${metaId}: status=${posRes.status} body=${posRes.body}`);
+      } else {
+        console.log(`[metaapi-snapshot] positions count for ${metaId}: ${normalizePositionArray(posRes.data).length}`);
+      }
 
       const info = infoRes.ok ? infoRes.data : null;
       const posList = posRes.ok ? normalizePositionArray(posRes.data) : [];
