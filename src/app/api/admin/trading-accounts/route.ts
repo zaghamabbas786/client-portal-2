@@ -45,16 +45,16 @@ export async function POST(request: Request) {
   const label =
     typeof body.label === "string" && body.label.trim()
       ? body.label.trim()
-      : `${platform} — ${broker}`;
+      : `${platform} — ${server}`;
 
   let metaapiId =
     typeof body.metaapi_account_id === "string"
       ? body.metaapi_account_id.trim()
       : "";
 
-  if (!userId || !broker || !server || !login) {
+  if (!userId || !server || !login) {
     return Response.json(
-      { error: "user_id, broker, server, and login are required" },
+      { error: "user_id, server, and login are required" },
       { status: 400 },
     );
   }
@@ -86,7 +86,7 @@ export async function POST(request: Request) {
     .insert({
       user_id: userId,
       platform,
-      broker,
+      broker: broker || server,
       server,
       login,
       label,
