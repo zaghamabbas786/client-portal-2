@@ -169,19 +169,26 @@ begin
 end;
 $$;
 
+-- Security-definer helper: checks admin status without being subject to RLS.
+-- Required because a plain subquery on profiles inside an UPDATE policy triggers
+-- the profiles_select_own RLS policy, which blocks the inner read and makes the
+-- admin check always return false (silent 0-row update).
+create or replace function public.is_admin()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role = 'admin'
+  );
+$$;
+
 -- Add RLS policy so an authenticated admin can update any profile row.
 drop policy if exists "profiles_update_admin" on public.profiles;
 create policy "profiles_update_admin" on public.profiles
   for update
-  using (
-    exists (
-      select 1 from public.profiles p
-      where p.id = auth.uid() and p.role = 'admin'
-    )
-  )
-  with check (
-    exists (
-      select 1 from public.profiles p
-      where p.id = auth.uid() and p.role = 'admin'
-    )
-  );
+  using (public.is_admin())
+  with check (public.is_admin());
