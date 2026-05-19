@@ -18,7 +18,7 @@ export function getMetaApiBaseUrl(region?: string | null): string {
 export function getMetaApiProvisioningUrl(): string {
   return (
     process.env.METAAPI_PROVISIONING_URL?.trim() ||
-    "https://mt-provisioning-api-v1.new-york.agiliumtrade.ai"
+    "https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai"
   );
 }
 
