@@ -165,7 +165,7 @@ export async function GET() {
       // values are available if MetaAPI is temporarily unreachable.
       if (effectiveInfo && typeof effectiveInfo.balance === "number") {
         const admin = createAdminClient();
-        void admin.from("trading_accounts").update({
+        await admin.from("trading_accounts").update({
           balance: effectiveInfo.balance,
           equity: effectiveInfo.equity ?? effectiveInfo.balance,
           margin: typeof effectiveInfo.margin === "number" ? effectiveInfo.margin : undefined,
