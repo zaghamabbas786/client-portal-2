@@ -121,20 +121,12 @@ export function ConnectModal({
 
               <div className="field">
                 <label>Broker</label>
-                <select
+                <input
+                  placeholder="e.g. TTTMarkets, IC Markets…"
                   value={form.broker}
                   onChange={set("broker")}
                   required
-                >
-                  <option value="">Select broker…</option>
-                  <option>IC Markets</option>
-                  <option>Pepperstone</option>
-                  <option>Saxo Bank</option>
-                  <option>FP Markets</option>
-                  <option>Tickmill</option>
-                  <option>ThinkMarkets</option>
-                  <option>Other</option>
-                </select>
+                />
               </div>
 
               <div className="field">
