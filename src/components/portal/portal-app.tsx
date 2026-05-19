@@ -59,10 +59,6 @@ function abortSignalAfter(ms: number): { signal: AbortSignal; clear: () => void 
 async function hydrateFromMetaSnapshot(
   mapped: PortalAccount[],
 ): Promise<{ accounts: PortalAccount[]; positions: PositionRow[]; history: HistoryRow[] }> {
-  const mockPositions = PortalData.genPositions(mapped);
-  /** Closed trades come only from MetaAPI deals — no synthetic ledger. */
-  const emptyHistory: HistoryRow[] = [];
-
   const { signal, clear } = abortSignalAfter(METAPI_SNAPSHOT_CLIENT_MS);
 
   try {
@@ -78,11 +74,7 @@ async function hydrateFromMetaSnapshot(
     };
     const j = (await res.json()) as Snap;
     if (!res.ok || !j.live || !Array.isArray(j.patches)) {
-      return {
-        accounts: mapped,
-        positions: mockPositions,
-        history: emptyHistory,
-      };
+      return { accounts: mapped, positions: [], history: [] };
     }
 
     const patchMap = new Map(j.patches.map((p) => [p.id, p]));
@@ -91,27 +83,17 @@ async function hydrateFromMetaSnapshot(
       ...patchMap.get(a.id),
     }));
 
-    const liveNoMeta = mergedAccounts.filter(
-      (a) => a.status === "live" && !a.metaApiAccountId,
-    );
-    const mockPosOnlyMeta = PortalData.genPositions(liveNoMeta);
-
     const metaPos = Array.isArray(j.positions) ? j.positions : [];
-
     const metaHist = Array.isArray(j.history) ? j.history : [];
     const history = metaHist.sort((a, b) => b.closeTime - a.closeTime);
 
     return {
       accounts: mergedAccounts,
-      positions: [...mockPosOnlyMeta, ...metaPos],
+      positions: metaPos,
       history: history.slice(0, 400),
     };
   } catch {
-    return {
-      accounts: mapped,
-      positions: mockPositions,
-      history: emptyHistory,
-    };
+    return { accounts: mapped, positions: [], history: [] };
   } finally {
     clear();
   }
@@ -144,7 +126,7 @@ export function PortalApp() {
 
   const [accounts, setAccounts] = useState<PortalAccount[]>([]);
   const [positions, setPositions] = useState(() =>
-    PortalData.genPositions([]),
+    [],
   );
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [dataUpdatedAt, setDataUpdatedAt] = useState(() => Date.now());
@@ -169,7 +151,7 @@ export function PortalApp() {
     async (sb: NonNullable<typeof supabaseClient>, uid: string) => {
       const applyBaselineThenMeta = (mapped: PortalAccount[]) => {
         setAccounts(mapped);
-        setPositions(PortalData.genPositions(mapped));
+        setPositions([]);
         setHistory([]);
         setDataUpdatedAt(Date.now());
 
@@ -314,7 +296,7 @@ export function PortalApp() {
         lastLoadedAtRef.current = 0;
         setProfile(null);
         setAccounts([]);
-        setPositions(PortalData.genPositions([]));
+        setPositions([]);
         setHistory([]);
       }
     });
