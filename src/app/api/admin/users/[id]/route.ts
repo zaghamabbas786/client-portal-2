@@ -1,6 +1,6 @@
 import { requireAdmin } from "@/lib/auth/guards";
 import { parsePortalRole, type PortalRole } from "@/lib/auth/roles";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createAdminClient } from "@/lib/supabase/admin"; // still used by DELETE
 
 export async function PATCH(
   request: Request,
@@ -22,7 +22,6 @@ export async function PATCH(
     return Response.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const admin = createAdminClient();
   const patch: Record<string, string> = {};
   if (typeof body.full_name === "string") patch.full_name = body.full_name;
   if (typeof body.role === "string") {
@@ -34,7 +33,10 @@ export async function PATCH(
     return Response.json({ error: "No fields to update" }, { status: 400 });
   }
 
-  const { error } = await admin.from("profiles").update(patch).eq("id", id);
+  // Use the authenticated admin's own client so auth.uid() is set correctly
+  // in any DB triggers that check the caller's role. Service-role has no JWT
+  // so auth.uid() returns null and triggers that guard role changes block it.
+  const { error } = await gate.supabase.from("profiles").update(patch).eq("id", id);
   if (error) return Response.json({ error: error.message }, { status: 400 });
   return Response.json({ ok: true });
 }
