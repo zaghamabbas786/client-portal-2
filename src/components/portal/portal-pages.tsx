@@ -15,21 +15,64 @@ export function Dashboard({
   accounts,
   activeAccountId,
   positions,
+  history,
   dataUpdatedAt,
 }: {
   accounts: PortalAccount[];
   activeAccountId: string;
   positions: PositionRow[];
+  history: HistoryRow[];
   dataUpdatedAt: number;
 }) {
   const [range, setRange] = useP('3M');
   const rangeDays = { '1W': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365, 'ALL': 540 }[range] || 90;
 
   const scoped = activeAccountId === 'all' ? accounts : accounts.filter(a => a.id === activeAccountId);
-  const aggs = PortalData.computeAggregates(scoped);
-  const curve = useM(() => PortalData.aggregateEquity(scoped, rangeDays), [activeAccountId, rangeDays, accounts]);
   const scopedPos = positions.filter(p => activeAccountId === 'all' || p.accountId === activeAccountId);
   const floating = scopedPos.reduce((s, p) => s + p.pl, 0);
+
+  const totalEquity = scoped.filter(a => a.status === 'live').reduce((s, a) => s + a.equity, 0);
+
+  // Real stats from MetaAPI history (closed trades)
+  const scopedHistory = useM(
+    () => history.filter(h => activeAccountId === 'all' || h.accountId === activeAccountId),
+    [history, activeAccountId],
+  );
+  const hasHistory = scopedHistory.length > 0;
+
+  const totalHistPL = useM(() => scopedHistory.reduce((s, h) => s + h.net, 0), [scopedHistory]);
+
+  const todayHistPL = useM(() => {
+    const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
+    return scopedHistory.filter(h => h.closeTime >= midnight.getTime()).reduce((s, h) => s + h.net, 0);
+  }, [scopedHistory]);
+
+  // When we have real history: P&L = sum of closed trades.
+  // When no history (fresh account, no trades yet): P&L = 0, deposit = current balance.
+  const displayTotalPL = hasHistory ? totalHistPL : 0;
+  const displayDeposit = hasHistory ? Math.max(0, totalEquity - totalHistPL) : totalEquity;
+  const displayTotalPLPct = displayDeposit ? (displayTotalPL / displayDeposit) * 100 : 0;
+  const displayTodayPL = hasHistory ? todayHistPL : 0;
+  const displayTodayPLPct = totalEquity ? (displayTodayPL / totalEquity) * 100 : 0;
+
+  // Build equity curve: real from history when available, generated otherwise
+  const curve = useM(() => {
+    if (hasHistory) {
+      const now = Date.now();
+      const rangeStart = now - rangeDays * 86400_000;
+      const sorted = [...scopedHistory].sort((a, b) => a.closeTime - b.closeTime);
+      // Equity at rangeStart = currentEquity minus P&L of trades that closed after rangeStart
+      const plInRange = sorted.filter(h => h.closeTime >= rangeStart).reduce((s, h) => s + h.net, 0);
+      let eq = totalEquity - plInRange;
+      const pts: { t: number; eq: number }[] = [{ t: rangeStart, eq }];
+      for (const h of sorted) {
+        if (h.closeTime >= rangeStart) { eq += h.net; pts.push({ t: h.closeTime, eq }); }
+      }
+      if (pts[pts.length - 1].t < now - 60_000) pts.push({ t: now, eq: totalEquity });
+      return pts;
+    }
+    return PortalData.aggregateEquity(scoped, rangeDays);
+  }, [activeAccountId, rangeDays, accounts, scopedHistory, hasHistory, totalEquity]);
 
   // period return from curve
   const periodStart = curve[0]?.eq || 0;
@@ -55,13 +98,13 @@ export function Dashboard({
       rangeLabel: range,
       scopeLabel,
       summaryRows: [
-        ["Total equity", fmt.money(aggs.equity, "USD")],
+        ["Total equity", fmt.money(totalEquity, "USD")],
         ["Floating P&L", fmt.moneySigned(floating, "USD")],
-        ["Total P&L", fmt.moneySigned(aggs.totalPL, "USD")],
-        ["Total P&L %", fmt.pct(aggs.totalPLPct, 2)],
-        ["Today's P&L", fmt.moneySigned(aggs.todayPL, "USD")],
-        ["Today's P&L %", fmt.pct(aggs.todayPLPct, 2)],
-        ["Deposit base", fmt.money(aggs.deposit, "USD", { decimals: 0 })],
+        ["Total P&L", fmt.moneySigned(displayTotalPL, "USD")],
+        ["Total P&L %", fmt.pct(displayTotalPLPct, 2)],
+        ["Today's P&L", fmt.moneySigned(displayTodayPL, "USD")],
+        ["Today's P&L %", fmt.pct(displayTodayPLPct, 2)],
+        ["Deposit base", fmt.money(displayDeposit, "USD", { decimals: 0 })],
         ["Period P&L (" + range + ")", fmt.moneySigned(periodPL, "USD")],
         ["Period % (" + range + ")", fmt.pct(periodPct, 2)],
       ],
@@ -89,12 +132,12 @@ export function Dashboard({
       rangeLabel: range,
       scopeLabel,
       summaryRows: [
-        ["Total equity", fmt.money(aggs.equity, "USD")],
+        ["Total equity", fmt.money(totalEquity, "USD")],
         ["Floating P&L", fmt.moneySigned(floating, "USD")],
-        ["Total P&L", fmt.moneySigned(aggs.totalPL, "USD")],
-        ["Total P&L %", fmt.pct(aggs.totalPLPct, 2)],
-        ["Today's P&L", fmt.moneySigned(aggs.todayPL, "USD")],
-        ["Deposit base", fmt.money(aggs.deposit, "USD", { decimals: 0 })],
+        ["Total P&L", fmt.moneySigned(displayTotalPL, "USD")],
+        ["Total P&L %", fmt.pct(displayTotalPLPct, 2)],
+        ["Today's P&L", fmt.moneySigned(displayTodayPL, "USD")],
+        ["Deposit base", fmt.money(displayDeposit, "USD", { decimals: 0 })],
         ["Period P&L (" + range + ")", fmt.moneySigned(periodPL, "USD")],
       ],
       curveSample: curvePdfSample,
@@ -140,23 +183,23 @@ export function Dashboard({
       <div className="kpi-grid">
         <div className="kpi">
           <span className="k">Total Equity</span>
-          <span className="v"><FlashNum value={aggs.equity} ccy="USD"/></span>
+          <span className="v"><FlashNum value={totalEquity} ccy="USD"/></span>
           <span className="d"><span className="chg" style={{ color: floating >= 0 ? 'var(--up)' : 'var(--down)' }}>{fmt.moneySigned(floating, 'USD')}</span><span>floating</span></span>
         </div>
         <div className="kpi">
           <span className="k">Total P&L</span>
-          <span className="v" style={{ color: aggs.totalPL >= 0 ? 'var(--up)' : 'var(--down)' }}><FlashNum value={aggs.totalPL} signed ccy="USD"/></span>
-          <span className="d"><span className="chg" style={{ color: aggs.totalPL >= 0 ? 'var(--up)' : 'var(--down)' }}>{fmt.pct(aggs.totalPLPct)}</span><span>since inception</span></span>
+          <span className="v" style={{ color: displayTotalPL >= 0 ? 'var(--up)' : 'var(--down)' }}><FlashNum value={displayTotalPL} signed ccy="USD"/></span>
+          <span className="d"><span className="chg" style={{ color: displayTotalPL >= 0 ? 'var(--up)' : 'var(--down)' }}>{fmt.pct(displayTotalPLPct)}</span><span>since inception</span></span>
         </div>
         <div className="kpi">
           <span className="k">Today&apos;s P&L</span>
-          <span className="v" style={{ color: aggs.todayPL >= 0 ? 'var(--up)' : 'var(--down)' }}><FlashNum value={aggs.todayPL} signed ccy="USD"/></span>
-          <span className="d"><span className="chg" style={{ color: aggs.todayPL >= 0 ? 'var(--up)' : 'var(--down)' }}>{fmt.pct(aggs.todayPLPct)}</span><span>vs. yesterday close</span></span>
+          <span className="v" style={{ color: displayTodayPL >= 0 ? 'var(--up)' : 'var(--down)' }}><FlashNum value={displayTodayPL} signed ccy="USD"/></span>
+          <span className="d"><span className="chg" style={{ color: displayTodayPL >= 0 ? 'var(--up)' : 'var(--down)' }}>{fmt.pct(displayTodayPLPct)}</span><span>vs. yesterday close</span></span>
         </div>
         <div className="kpi">
           <span className="k">Total P&L %</span>
-          <span className="v" style={{ color: aggs.totalPLPct >= 0 ? 'var(--up)' : 'var(--down)' }}>{fmt.pct(aggs.totalPLPct, 2)}</span>
-          <span className="d"><span>on <span className="chg">{fmt.money(aggs.deposit, 'USD', { decimals: 0 })}</span></span><span>deposited</span></span>
+          <span className="v" style={{ color: displayTotalPLPct >= 0 ? 'var(--up)' : 'var(--down)' }}>{fmt.pct(displayTotalPLPct, 2)}</span>
+          <span className="d"><span>on <span className="chg">{fmt.money(displayDeposit, 'USD', { decimals: 0 })}</span></span><span>deposited</span></span>
         </div>
       </div>
 

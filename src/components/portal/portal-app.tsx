@@ -442,6 +442,7 @@ export function PortalApp() {
               accounts={accounts}
               activeAccountId={activeAccountId}
               positions={positions}
+              history={history}
               dataUpdatedAt={dataUpdatedAt}
             />
           )}
