@@ -8,6 +8,7 @@ import { metaDealsToHistory, metaPositionToRow } from "@/lib/metaapi/mappers";
 import type { MetaAccountInformation, MetaDeal, MetaPosition } from "@/lib/metaapi/types";
 import type { HistoryRow, PortalAccount, PositionRow } from "@/lib/portal-data";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   rowToPortalAccount,
   type TradingAccountRow,
@@ -159,6 +160,22 @@ export async function GET() {
       }
 
       const patches = portalPatchFromMeta(baseline, effectiveInfo);
+
+      // Write live values back to DB so admin panel stays accurate and last-known
+      // values are available if MetaAPI is temporarily unreachable.
+      if (effectiveInfo && typeof effectiveInfo.balance === "number") {
+        const admin = createAdminClient();
+        void admin.from("trading_accounts").update({
+          balance: effectiveInfo.balance,
+          equity: effectiveInfo.equity ?? effectiveInfo.balance,
+          margin: typeof effectiveInfo.margin === "number" ? effectiveInfo.margin : undefined,
+          free_margin: typeof effectiveInfo.freeMargin === "number" ? effectiveInfo.freeMargin : undefined,
+          leverage: typeof effectiveInfo.leverage === "number" ? effectiveInfo.leverage : undefined,
+          currency: effectiveInfo.currency ?? undefined,
+          broker: effectiveInfo.broker ?? undefined,
+          server: effectiveInfo.server ?? undefined,
+        }).eq("id", row.id);
+      }
 
       const positions = posList
         .map((p) => metaPositionToRow(p, baseline.id))
