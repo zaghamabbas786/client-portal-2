@@ -129,3 +129,59 @@ create trigger profiles_lock_role
 -- Optional phone for client portal settings (edited by user; email stays in auth.users).
 alter table public.profiles
   add column if not exists phone text default '';
+
+-- =============================================================================
+-- Migration 002: fix admin role management
+-- =============================================================================
+-- Two bugs prevented admins from changing another user's role via the dashboard:
+--
+-- 1. Trigger used request.jwt.claim.role (singular) which PostgREST does not
+--    populate — the correct key is request.jwt.claims (plural, full JSON blob).
+--    This meant claim_role was always null, the service_role bypass never fired,
+--    and the admin client was blocked with "Profile roles can only be changed
+--    by an administrator."
+--
+-- 2. The only UPDATE policy was "profiles_update_own" (auth.uid() = id), so
+--    even with a valid admin JWT the RLS silently filtered out cross-user
+--    updates, returning 200 OK but affecting 0 rows.
+-- =============================================================================
+
+-- Fix the trigger: parse claims from the full JSON blob.
+create or replace function public.profiles_lock_role_escalation()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  jwt_claims  jsonb := nullif(current_setting('request.jwt.claims', true), '')::jsonb;
+  claim_role  text  := coalesce(jwt_claims->>'role', '');
+begin
+  if tg_op = 'UPDATE' and new.role is distinct from old.role then
+    if claim_role = 'service_role' then
+      return new;
+    end if;
+    if current_user in ('postgres', 'supabase_admin') then
+      return new;
+    end if;
+    raise exception 'Profile roles can only be changed by an administrator.';
+  end if;
+  return new;
+end;
+$$;
+
+-- Add RLS policy so an authenticated admin can update any profile row.
+drop policy if exists "profiles_update_admin" on public.profiles;
+create policy "profiles_update_admin" on public.profiles
+  for update
+  using (
+    exists (
+      select 1 from public.profiles p
+      where p.id = auth.uid() and p.role = 'admin'
+    )
+  )
+  with check (
+    exists (
+      select 1 from public.profiles p
+      where p.id = auth.uid() and p.role = 'admin'
+    )
+  );

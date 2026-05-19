@@ -34,10 +34,20 @@ export async function PATCH(
   }
 
   // Use the authenticated admin's own client so auth.uid() is set correctly
-  // in any DB triggers that check the caller's role. Service-role has no JWT
-  // so auth.uid() returns null and triggers that guard role changes block it.
-  const { error } = await gate.supabase.from("profiles").update(patch).eq("id", id);
+  // in DB triggers that check the caller's role. Service-role has no JWT so
+  // auth.uid() returns null and triggers that guard role changes block it.
+  const { error, count } = await gate.supabase
+    .from("profiles")
+    .update(patch)
+    .eq("id", id)
+    .select("id", { count: "exact", head: true });
   if (error) return Response.json({ error: error.message }, { status: 400 });
+  if (count === 0) {
+    return Response.json(
+      { error: "Update blocked — ensure the admin RLS policy exists on profiles." },
+      { status: 403 },
+    );
+  }
   return Response.json({ ok: true });
 }
 
