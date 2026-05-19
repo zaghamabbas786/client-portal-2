@@ -22,6 +22,13 @@ type EditState = {
   saving: boolean;
 };
 
+type RetryState = {
+  id: string;
+  password: string;
+  loading: boolean;
+  error: string | null;
+};
+
 export function AdminAccounts() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [accounts, setAccounts] = useState<TradingAccountRow[]>([]);
@@ -30,6 +37,7 @@ export function AdminAccounts() {
   const [loading, setLoading] = useState(true);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [editing, setEditing] = useState<EditState | null>(null);
+  const [retry, setRetry] = useState<RetryState | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -95,6 +103,30 @@ export function AdminAccounts() {
       else { setEditing(null); await load(); }
     } finally {
       setEditing((e) => e && { ...e, saving: false });
+    }
+  }
+
+  async function retryProvision() {
+    if (!retry || retry.loading || !retry.password.trim()) return;
+    setRetry((r) => r && { ...r, loading: true, error: null });
+    try {
+      const res = await fetch(
+        `/api/admin/trading-accounts?id=${encodeURIComponent(retry.id)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provision_password: retry.password }),
+        },
+      );
+      const j = await res.json();
+      if (!res.ok) {
+        setRetry((r) => r && { ...r, loading: false, error: j.error || "Provisioning failed" });
+      } else {
+        setRetry(null);
+        await load();
+      }
+    } catch {
+      setRetry((r) => r && { ...r, loading: false, error: "Request failed" });
     }
   }
 
@@ -237,8 +269,12 @@ export function AdminAccounts() {
                     );
                   }
 
+                  const isRetrying = retry?.id === a.id;
+                  const noMetaApi = !a.metaapi_account_id?.trim();
+
                   return (
-                    <tr key={a.id}>
+                    <React.Fragment key={a.id}>
+                    <tr>
                       <td style={{ fontSize: 12.5 }}>
                         <span className="truncate" style={{ display: "block" }}>
                           {assignedLabel}
@@ -257,6 +293,16 @@ export function AdminAccounts() {
                           : <span style={{ color: "var(--down)" }}>not set</span>}
                       </td>
                       <td className="num" style={{ whiteSpace: "nowrap" }}>
+                        {noMetaApi && (
+                          <button
+                            type="button"
+                            className="btn ghost"
+                            style={{ height: 30, fontSize: 11, marginRight: 4, color: "var(--up)" }}
+                            onClick={() => setRetry(isRetrying ? null : { id: a.id, password: "", loading: false, error: null })}
+                          >
+                            {isRetrying ? "Cancel" : "Retry MetaAPI"}
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="btn ghost"
@@ -277,6 +323,39 @@ export function AdminAccounts() {
                         </LoadingButton>
                       </td>
                     </tr>
+                    {isRetrying && (
+                      <tr style={{ background: "var(--surface-2)" }}>
+                        <td colSpan={7} style={{ padding: "10px 16px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 12, color: "var(--ink-2)" }}>
+                              Investor password for <strong>{a.login}</strong> on <strong>{a.server}</strong>:
+                            </span>
+                            <input
+                              type="password"
+                              className="mono"
+                              placeholder="Investor password"
+                              value={retry.password}
+                              onChange={(e) => setRetry((r) => r && { ...r, password: e.target.value })}
+                              style={{ fontSize: 12, padding: "4px 8px", width: 200 }}
+                              onKeyDown={(e) => { if (e.key === "Enter") void retryProvision(); }}
+                            />
+                            <LoadingButton
+                              variant="primary"
+                              loading={retry.loading}
+                              loadingText="Provisioning…"
+                              style={{ height: 30, fontSize: 12 }}
+                              onClick={retryProvision}
+                            >
+                              Connect to MetaAPI
+                            </LoadingButton>
+                            {retry.error && (
+                              <span style={{ fontSize: 11, color: "var(--down)", maxWidth: 420 }}>{retry.error}</span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   );
                 })
               )}

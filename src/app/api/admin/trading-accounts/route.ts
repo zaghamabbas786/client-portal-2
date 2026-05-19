@@ -69,15 +69,50 @@ export async function POST(request: Request) {
       platform: platform.toLowerCase() === "mt4" ? "mt4" : "mt5",
       name: label,
     });
+    let metaapiWarning: string | null = null;
     if (prov.ok && prov.data.id) {
       metaapiId = prov.data.id;
       metaapiRegion = prov.data.region;
       console.log(`[admin/trading-accounts] Auto-provisioned MetaAPI account: ${metaapiId} region=${metaapiRegion}`);
     } else if (!prov.ok) {
-      console.warn(`[admin/trading-accounts] MetaAPI provisioning failed (account saved without UUID): status=${prov.status} body=${prov.body}`);
+      metaapiWarning = prov.body;
+      console.warn(`[admin/trading-accounts] MetaAPI provisioning failed: status=${prov.status} body=${prov.body}`);
     }
+
+    const seed = Math.floor(Math.random() * 900) + 100;
+
+    const admin = createAdminClient();
+    const { data, error } = await admin
+      .from("trading_accounts")
+      .insert({
+        user_id: userId,
+        platform,
+        broker: broker || server,
+        server,
+        login,
+        label,
+        status: "live",
+        currency: "USD",
+        strategy: "Client account",
+        balance: 0,
+        equity: 0,
+        margin: 0,
+        free_margin: 0,
+        leverage: 100,
+        deposit: 0,
+        opened_at: new Date().toISOString().slice(0, 10),
+        seed,
+        metaapi_account_id: metaapiId || null,
+        metaapi_region: metaapiRegion || null,
+      })
+      .select()
+      .single();
+
+    if (error) return Response.json({ error: error.message }, { status: 400 });
+    return Response.json({ account: data, metaapi_warning: metaapiWarning });
   }
 
+  // No password supplied — save without MetaAPI provisioning
   const seed = Math.floor(Math.random() * 900) + 100;
 
   const admin = createAdminClient();
@@ -102,7 +137,7 @@ export async function POST(request: Request) {
       opened_at: new Date().toISOString().slice(0, 10),
       seed,
       metaapi_account_id: metaapiId || null,
-      metaapi_region: metaapiRegion || null,
+      metaapi_region: null,
     })
     .select()
     .single();
@@ -126,11 +161,41 @@ export async function PATCH(request: Request) {
     label?: string;
     metaapi_account_id?: string | null;
     platform?: string;
+    provision_password?: string;
   };
   try {
     body = await request.json();
   } catch {
     return Response.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  // Retry MetaAPI provisioning for an existing account
+  if (typeof body.provision_password === "string" && body.provision_password.trim()) {
+    const admin = createAdminClient();
+    const { data: row } = await admin
+      .from("trading_accounts")
+      .select("login, server, platform, label")
+      .eq("id", id)
+      .single();
+    if (!row) return Response.json({ error: "Account not found" }, { status: 404 });
+
+    const prov = await provisionMetaApiAccount({
+      login: row.login,
+      password: body.provision_password.trim(),
+      server: row.server,
+      platform: (row.platform as string).toLowerCase() === "mt4" ? "mt4" : "mt5",
+      name: row.label,
+    });
+
+    if (!prov.ok) {
+      return Response.json({ error: `MetaAPI provisioning failed: ${prov.body}` }, { status: 400 });
+    }
+    const { error } = await admin
+      .from("trading_accounts")
+      .update({ metaapi_account_id: prov.data.id, metaapi_region: prov.data.region })
+      .eq("id", id);
+    if (error) return Response.json({ error: error.message }, { status: 400 });
+    return Response.json({ ok: true, metaapi_id: prov.data.id, region: prov.data.region });
   }
 
   const patch: Record<string, string | null> = {};

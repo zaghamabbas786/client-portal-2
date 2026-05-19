@@ -78,6 +78,11 @@ export function ConnectModal({
           setError(j.error || "Failed to link account. Check credentials and try again.");
           return;
         }
+        if (j.metaapi_warning) {
+          setStep("done");
+          setError(`Account saved but MetaAPI connection failed: ${j.metaapi_warning}`);
+          return;
+        }
       } else {
         await new Promise((r) => setTimeout(r, 1600));
       }
@@ -254,19 +259,28 @@ export function ConnectModal({
             <div className="modal-body" style={{ alignItems: "center", textAlign: "center", padding: "48px 24px 32px" }}>
               <div style={{
                 width: 42, height: 42, borderRadius: "50%",
-                background: "var(--up-soft)", color: "var(--up)",
+                background: error ? "var(--down-soft, rgba(239,68,68,0.1))" : "var(--up-soft)",
+                color: error ? "var(--down)" : "var(--up)",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 margin: "0 auto 20px",
               }}>
-                <Ic.check />
+                {error ? <Ic.x /> : <Ic.check />}
               </div>
               <div style={{ fontFamily: "var(--serif)", fontSize: 19, marginBottom: 6 }}>
-                Account connected
+                {error ? "Account saved — MetaAPI issue" : "Account connected"}
               </div>
-              <div style={{ fontSize: 13, color: "var(--ink-3)", maxWidth: 40 * 7, margin: "0 auto" }}>
-                {platform} · {form.server} · #{form.login} is now syncing.
-                Positions and equity will appear in a few seconds.
-              </div>
+              {error ? (
+                <div style={{ fontSize: 12, color: "var(--down)", maxWidth: 40 * 7, margin: "0 auto", textAlign: "left",
+                  background: "var(--down-soft, rgba(239,68,68,0.08))", border: "1px solid var(--down)",
+                  borderRadius: 6, padding: "10px 14px" }}>
+                  {error}
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, color: "var(--ink-3)", maxWidth: 40 * 7, margin: "0 auto" }}>
+                  {platform} · {form.server} · #{form.login} is now syncing.
+                  Positions and equity will appear in a few seconds.
+                </div>
+              )}
             </div>
             <div className="modal-foot" style={{ justifyContent: "flex-end" }}>
               <button type="button" className="btn primary" onClick={onClose}>Done</button>
