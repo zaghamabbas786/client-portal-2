@@ -108,6 +108,8 @@ export interface PortalAccount {
   seed: number;
   /** MetaAPI account UUID when linked (server-side live hydration). */
   metaApiAccountId?: string | null;
+  /** MetaAPI region (e.g. "london", "vint-hill", "new-york") — determines trading API base URL. */
+  metaApiRegion?: string | null;
 }
 
 function genEquityCurve(seed: number, days: number, startEq: number) {

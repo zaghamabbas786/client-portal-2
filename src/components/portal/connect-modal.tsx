@@ -1,5 +1,7 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Ic, LoadingButton, Spinner } from "./primitives";
+
+type Suggestion = { broker: string; server: string };
 
 export function ConnectModal({
   onClose,
@@ -7,7 +9,6 @@ export function ConnectModal({
   defaultUserId,
 }: {
   onClose: () => void;
-  /** When set (admin), link flow posts to `/api/admin/trading-accounts`. */
   clientUsers?: { id: string; email: string }[];
   defaultUserId?: string;
 }) {
@@ -16,25 +17,48 @@ export function ConnectModal({
     () => defaultUserId || clientUsers?.[0]?.id || "",
   );
   const [step, setStep] = useState<"form" | "connecting" | "done">("form");
-  const [form, setForm] = useState({
-    broker: "",
-    server: "",
-    login: "",
-    password: "",
-    label: "",
-    metaapi_account_id: "",
-  });
+  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState({ server: "", login: "", password: "", label: "" });
   const set =
     (k: keyof typeof form) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    (e: React.ChangeEvent<HTMLInputElement>) =>
       setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  // Server autocomplete
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (form.server.length < 2) { setSuggestions([]); return; }
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/admin/mt-servers?q=${encodeURIComponent(form.server)}&platform=${platform}`,
+        );
+        const j = (await res.json()) as { suggestions?: Suggestion[] };
+        setSuggestions(j.suggestions ?? []);
+      } catch {
+        setSuggestions([]);
+      }
+    }, 350);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [form.server, platform]);
+
+  function pickSuggestion(s: Suggestion) {
+    setForm((f) => ({ ...f, server: s.server }));
+    setSuggestions([]);
+    setShowSuggestions(false);
+  }
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (clientUsers?.length && !userId) return;
+    setError(null);
     setStep("connecting");
     const isAdmin = !!clientUsers?.length;
-    const run = async () => {
+    void (async () => {
       if (isAdmin) {
         const res = await fetch("/api/admin/trading-accounts", {
           method: "POST",
@@ -42,35 +66,28 @@ export function ConnectModal({
           body: JSON.stringify({
             user_id: userId,
             platform,
-            broker: form.broker,
             server: form.server,
             login: form.login,
             password: form.password,
             label: form.label,
-            metaapi_account_id: form.metaapi_account_id,
           }),
         });
         const j = await res.json().catch(() => ({}));
         if (!res.ok) {
           setStep("form");
-          alert(j.error || "Failed to link account");
+          setError(j.error || "Failed to link account. Check credentials and try again.");
           return;
         }
       } else {
         await new Promise((r) => setTimeout(r, 1600));
       }
       setStep("done");
-    };
-    void run();
+    })();
   }
 
   return (
     <div className="modal-scrim" onClick={onClose} role="presentation">
-      <div
-        className="modal"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-      >
+      <div className="modal" onClick={(e) => e.stopPropagation()} role="dialog">
         <div className="modal-head">
           <div>
             <h2 className="modal-title">Connect MetaTrader account</h2>
@@ -90,55 +107,64 @@ export function ConnectModal({
               {clientUsers && clientUsers.length > 0 && (
                 <div className="field">
                   <label>Client user</label>
-                  <select
-                    value={userId}
-                    onChange={(e) => setUserId(e.target.value)}
-                    required
-                  >
+                  <select value={userId} onChange={(e) => setUserId(e.target.value)} required>
                     {clientUsers.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.email}
-                      </option>
+                      <option key={u.id} value={u.id}>{u.email}</option>
                     ))}
                   </select>
                 </div>
               )}
+
               <div className="platform-toggle">
-                <button
-                  type="button"
-                  className={platform === "MT4" ? "active" : ""}
-                  onClick={() => setPlatform("MT4")}
-                >
+                <button type="button" className={platform === "MT4" ? "active" : ""} onClick={() => setPlatform("MT4")}>
                   MetaTrader 4
                 </button>
-                <button
-                  type="button"
-                  className={platform === "MT5" ? "active" : ""}
-                  onClick={() => setPlatform("MT5")}
-                >
+                <button type="button" className={platform === "MT5" ? "active" : ""} onClick={() => setPlatform("MT5")}>
                   MetaTrader 5
                 </button>
               </div>
 
-              <div className="field">
-                <label>Broker</label>
-                <input
-                  placeholder="e.g. TTTMarkets, IC Markets…"
-                  value={form.broker}
-                  onChange={set("broker")}
-                  required
-                />
-              </div>
-
-              <div className="field">
+              {/* Server with autocomplete */}
+              <div className="field" style={{ position: "relative" }}>
                 <label>Server</label>
                 <input
                   className="mono"
-                  placeholder="e.g. ICMarkets-Live05"
+                  placeholder="e.g. FTMO-Demo, ICMarkets-Live05"
                   value={form.server}
                   onChange={set("server")}
+                  onFocus={() => setShowSuggestions(true)}
+                  onBlur={() => setTimeout(() => setShowSuggestions(false), 180)}
+                  autoComplete="off"
                   required
                 />
+                {showSuggestions && suggestions.length > 0 && (
+                  <div style={{
+                    position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50,
+                    background: "var(--surface-2)", border: "1px solid var(--border)",
+                    borderRadius: 6, marginTop: 2, maxHeight: 180, overflowY: "auto",
+                    boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
+                  }}>
+                    {suggestions.map((s) => (
+                      <button
+                        key={s.server}
+                        type="button"
+                        onMouseDown={() => pickSuggestion(s)}
+                        style={{
+                          display: "block", width: "100%", textAlign: "left",
+                          padding: "8px 12px", background: "none", border: "none",
+                          cursor: "pointer", borderBottom: "1px solid var(--border)",
+                        }}
+                      >
+                        <span className="mono" style={{ fontSize: 12 }}>{s.server}</span>
+                        {s.broker && (
+                          <span style={{ fontSize: 11, color: "var(--ink-3)", marginLeft: 8 }}>
+                            {s.broker}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="field-row">
@@ -174,43 +200,19 @@ export function ConnectModal({
                 />
               </div>
 
-              {clientUsers?.length ? (
-                <div className="field">
-                  <label>MetaAPI account id (optional)</label>
-                  <input
-                    className="mono"
-                    placeholder="865d3a4d-3803-486d-bdf3-a85679d9fad2"
-                    value={form.metaapi_account_id}
-                    onChange={set("metaapi_account_id")}
-                  />
-                  <div
-                    style={{
-                      fontSize: 11.5,
-                      color: "var(--ink-3)",
-                      marginTop: 6,
-                      lineHeight: 1.35,
-                    }}
-                  >
-                    UUID from{" "}
-                    <a
-                      href="https://app.metaapi.cloud/accounts"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      MetaAPI → Accounts
-                    </a>
-                    . Set <span className="mono">METAAPI_TOKEN</span> or{" "}
-                    <span className="mono">METAAPI_ACCESS_TOKEN</span> in{" "}
-                    <span className="mono">.env.local</span> for live balance,
-                    positions, and history.
-                  </div>
+              {error && (
+                <div style={{
+                  background: "var(--down-soft, rgba(239,68,68,0.1))",
+                  border: "1px solid var(--down)",
+                  borderRadius: 6, padding: "10px 14px",
+                  color: "var(--down)", fontSize: 13,
+                }}>
+                  {error}
                 </div>
-              ) : null}
+              )}
 
               <div className="sec-note">
-                <span className="ico">
-                  <Ic.shield />
-                </span>
+                <span className="ico"><Ic.shield /></span>
                 <span>
                   Use your <strong>investor (read-only) password</strong>. This
                   grants viewing rights only — no trades can be placed,
@@ -219,30 +221,12 @@ export function ConnectModal({
               </div>
             </div>
             <div className="modal-foot">
-              <span
-                className="mono"
-                style={{
-                  fontSize: 10.5,
-                  color: "var(--ink-3)",
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                }}
-              >
+              <span className="mono" style={{ fontSize: 10.5, color: "var(--ink-3)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
                 TLS 1.3 · AES-256 at rest
               </span>
               <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  type="button"
-                  className="btn ghost"
-                  onClick={onClose}
-                >
-                  Cancel
-                </button>
-                <LoadingButton
-                  type="submit"
-                  variant="primary"
-                  loading={false}
-                >
+                <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
+                <LoadingButton type="submit" variant="primary" loading={false}>
                   Connect account
                 </LoadingButton>
               </div>
@@ -251,34 +235,14 @@ export function ConnectModal({
         )}
 
         {step === "connecting" && (
-          <div
-            className="modal-body"
-            style={{
-              alignItems: "center",
-              textAlign: "center",
-              padding: "56px 24px",
-            }}
-          >
+          <div className="modal-body" style={{ alignItems: "center", textAlign: "center", padding: "56px 24px" }}>
             <div style={{ margin: "0 auto 20px", display: "flex", justifyContent: "center" }}>
               <Spinner size="lg" />
             </div>
-            <div
-              style={{
-                fontFamily: "var(--serif)",
-                fontSize: 19,
-                marginBottom: 6,
-              }}
-            >
+            <div style={{ fontFamily: "var(--serif)", fontSize: 19, marginBottom: 6 }}>
               Establishing secure tunnel
             </div>
-            <div
-              style={{
-                fontSize: 13,
-                color: "var(--ink-3)",
-                maxWidth: 36 * 7,
-                margin: "0 auto",
-              }}
-            >
+            <div style={{ fontSize: 13, color: "var(--ink-3)", maxWidth: 36 * 7, margin: "0 auto" }}>
               Authenticating with {form.server || "broker"}… This usually takes
               under a minute.
             </div>
@@ -287,57 +251,25 @@ export function ConnectModal({
 
         {step === "done" && (
           <>
-            <div
-              className="modal-body"
-              style={{
-                alignItems: "center",
-                textAlign: "center",
-                padding: "48px 24px 32px",
-              }}
-            >
-              <div
-                style={{
-                  width: 42,
-                  height: 42,
-                  borderRadius: "50%",
-                  background: "var(--up-soft)",
-                  color: "var(--up)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  margin: "0 auto 20px",
-                }}
-              >
+            <div className="modal-body" style={{ alignItems: "center", textAlign: "center", padding: "48px 24px 32px" }}>
+              <div style={{
+                width: 42, height: 42, borderRadius: "50%",
+                background: "var(--up-soft)", color: "var(--up)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                margin: "0 auto 20px",
+              }}>
                 <Ic.check />
               </div>
-              <div
-                style={{
-                  fontFamily: "var(--serif)",
-                  fontSize: 19,
-                  marginBottom: 6,
-                }}
-              >
+              <div style={{ fontFamily: "var(--serif)", fontSize: 19, marginBottom: 6 }}>
                 Account connected
               </div>
-              <div
-                style={{
-                  fontSize: 13,
-                  color: "var(--ink-3)",
-                  maxWidth: 40 * 7,
-                  margin: "0 auto",
-                }}
-              >
-                {platform} · {form.broker || "Broker"} · #{form.login} is now
-                syncing. Positions and equity will appear in a few seconds.
+              <div style={{ fontSize: 13, color: "var(--ink-3)", maxWidth: 40 * 7, margin: "0 auto" }}>
+                {platform} · {form.server} · #{form.login} is now syncing.
+                Positions and equity will appear in a few seconds.
               </div>
             </div>
-            <div
-              className="modal-foot"
-              style={{ justifyContent: "flex-end" }}
-            >
-              <button type="button" className="btn primary" onClick={onClose}>
-                Done
-              </button>
+            <div className="modal-foot" style={{ justifyContent: "flex-end" }}>
+              <button type="button" className="btn primary" onClick={onClose}>Done</button>
             </div>
           </>
         )}

@@ -118,11 +118,14 @@ export async function GET() {
     linked.map(async (row) => {
       const baseline = rowToPortalAccount(row);
       const metaId = row.metaapi_account_id!.trim();
+      const region = row.metaapi_region?.trim() || null;
+
+      console.log(`[metaapi-snapshot] fetching account ${metaId} region=${region ?? "new-york(default)"}`);
 
       const [infoRes, posRes, dealsRes] = await Promise.all([
-        fetchAccountInformation(metaId),
-        fetchOpenPositions(metaId),
-        fetchHistoryDeals(metaId, start, end),
+        fetchAccountInformation(metaId, region),
+        fetchOpenPositions(metaId, region),
+        fetchHistoryDeals(metaId, start, end, region),
       ]);
 
       if (!infoRes.ok) {

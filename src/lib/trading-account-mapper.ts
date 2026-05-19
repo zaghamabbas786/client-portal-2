@@ -21,6 +21,7 @@ export type TradingAccountRow = {
   opened_at: string | null;
   seed: number;
   metaapi_account_id?: string | null;
+  metaapi_region?: string | null;
   created_at?: string;
 };
 
@@ -47,6 +48,10 @@ export function rowToPortalAccount(row: TradingAccountRow): PortalAccount {
       typeof row.metaapi_account_id === "string" &&
       row.metaapi_account_id.trim()
         ? row.metaapi_account_id.trim()
+        : null,
+    metaApiRegion:
+      typeof row.metaapi_region === "string" && row.metaapi_region.trim()
+        ? row.metaapi_region.trim()
         : null,
   };
 }

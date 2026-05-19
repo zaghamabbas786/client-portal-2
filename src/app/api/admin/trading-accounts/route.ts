@@ -60,6 +60,7 @@ export async function POST(request: Request) {
   }
 
   // Auto-provision MetaAPI account if credentials supplied and no UUID given manually.
+  let metaapiRegion: string | null = null;
   if (!metaapiId && password && metaApiConfigured()) {
     const prov = await provisionMetaApiAccount({
       login,
@@ -70,7 +71,8 @@ export async function POST(request: Request) {
     });
     if (prov.ok && prov.data.id) {
       metaapiId = prov.data.id;
-      console.log(`[admin/trading-accounts] Auto-provisioned MetaAPI account: ${metaapiId}`);
+      metaapiRegion = prov.data.region;
+      console.log(`[admin/trading-accounts] Auto-provisioned MetaAPI account: ${metaapiId} region=${metaapiRegion}`);
     } else if (!prov.ok) {
       console.warn(`[admin/trading-accounts] MetaAPI provisioning failed (account saved without UUID): status=${prov.status} body=${prov.body}`);
     }
@@ -100,6 +102,7 @@ export async function POST(request: Request) {
       opened_at: new Date().toISOString().slice(0, 10),
       seed,
       metaapi_account_id: metaapiId || null,
+      metaapi_region: metaapiRegion || null,
     })
     .select()
     .single();

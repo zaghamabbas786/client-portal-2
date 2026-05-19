@@ -192,3 +192,7 @@ create policy "profiles_update_admin" on public.profiles
   for update
   using (public.is_admin())
   with check (public.is_admin());
+
+-- Add metaapi_region column to store the region returned by MetaAPI provisioning API.
+-- Used to build the correct trading API base URL per account.
+alter table public.trading_accounts add column if not exists metaapi_region text;
