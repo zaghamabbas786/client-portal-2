@@ -45,6 +45,7 @@ export function ConnectModal({
             broker: form.broker,
             server: form.server,
             login: form.login,
+            password: form.password,
             label: form.label,
             metaapi_account_id: form.metaapi_account_id,
           }),

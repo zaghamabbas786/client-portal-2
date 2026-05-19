@@ -1,4 +1,6 @@
 import { requireAdmin } from "@/lib/auth/guards";
+import { provisionMetaApiAccount } from "@/lib/metaapi/client";
+import { metaApiConfigured } from "@/lib/metaapi/env";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET() {
@@ -24,6 +26,7 @@ export async function POST(request: Request) {
     broker?: string;
     server?: string;
     login?: string;
+    password?: string;
     label?: string;
     metaapi_account_id?: string;
   };
@@ -38,12 +41,13 @@ export async function POST(request: Request) {
   const broker = typeof body.broker === "string" ? body.broker.trim() : "";
   const server = typeof body.server === "string" ? body.server.trim() : "";
   const login = typeof body.login === "string" ? body.login.trim() : "";
+  const password = typeof body.password === "string" ? body.password : "";
   const label =
     typeof body.label === "string" && body.label.trim()
       ? body.label.trim()
       : `${platform} — ${broker}`;
 
-  const metaapiId =
+  let metaapiId =
     typeof body.metaapi_account_id === "string"
       ? body.metaapi_account_id.trim()
       : "";
@@ -53,6 +57,23 @@ export async function POST(request: Request) {
       { error: "user_id, broker, server, and login are required" },
       { status: 400 },
     );
+  }
+
+  // Auto-provision MetaAPI account if credentials supplied and no UUID given manually.
+  if (!metaapiId && password && metaApiConfigured()) {
+    const prov = await provisionMetaApiAccount({
+      login,
+      password,
+      server,
+      platform: platform.toLowerCase() === "mt4" ? "mt4" : "mt5",
+      name: label,
+    });
+    if (prov.ok && prov.data.id) {
+      metaapiId = prov.data.id;
+      console.log(`[admin/trading-accounts] Auto-provisioned MetaAPI account: ${metaapiId}`);
+    } else if (!prov.ok) {
+      console.warn(`[admin/trading-accounts] MetaAPI provisioning failed (account saved without UUID): status=${prov.status} body=${prov.body}`);
+    }
   }
 
   const seed = Math.floor(Math.random() * 900) + 100;
@@ -78,7 +99,7 @@ export async function POST(request: Request) {
       deposit: 0,
       opened_at: new Date().toISOString().slice(0, 10),
       seed,
-      metaapi_account_id: metaapiId ? metaapiId : null,
+      metaapi_account_id: metaapiId || null,
     })
     .select()
     .single();

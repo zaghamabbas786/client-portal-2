@@ -16,6 +16,13 @@ export function getMetaApiBaseUrl(): string {
   );
 }
 
+export function getMetaApiProvisioningUrl(): string {
+  return (
+    process.env.METAAPI_PROVISIONING_URL?.trim() ||
+    "https://mt-provisioning-api-v1.new-york.agiliumtrade.ai"
+  );
+}
+
 export function metaApiConfigured(): boolean {
   return getMetaApiToken().length > 0;
 }
