@@ -454,6 +454,7 @@ export function PortalApp() {
             {route === "accounts" && (
               <Accounts
                 accounts={accounts}
+                history={history}
                 onSelect={(id) => {
                   setActiveAccountId(id);
                   setRoute("positions");

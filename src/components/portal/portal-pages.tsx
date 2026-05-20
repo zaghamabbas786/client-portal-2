@@ -10,6 +10,39 @@ import { FlashNum, fmt, Ic, LoadingButton } from "./primitives";
 const useP = useState;
 const useM = useMemo;
 
+/** Build a 30-day equity sparkline from real trade history for a single account.
+ *  Falls back to a flat line at current equity when there are no closed trades. */
+function accountSparkline(
+  accountId: string,
+  currentEquity: number,
+  history: HistoryRow[],
+  days = 30,
+): { t: number; eq: number }[] {
+  const now = Date.now();
+  const rangeStart = now - days * 86400_000;
+  const acc = history
+    .filter(h => h.accountId === accountId && h.closeTime >= rangeStart)
+    .sort((a, b) => a.closeTime - b.closeTime);
+  if (acc.length === 0) return [{ t: rangeStart, eq: currentEquity }, { t: now, eq: currentEquity }];
+  const plInWindow = acc.reduce((s, h) => s + h.net, 0);
+  let eq = currentEquity - plInWindow;
+  const pts: { t: number; eq: number }[] = [{ t: rangeStart, eq }];
+  for (const h of acc) { eq += h.net; pts.push({ t: h.closeTime, eq }); }
+  pts.push({ t: now, eq: currentEquity });
+  return pts;
+}
+
+/** Total P&L and % for a single account from its full history slice. */
+function accountPL(
+  accountId: string,
+  currentEquity: number,
+  history: HistoryRow[],
+): { pl: number; pct: number } {
+  const pl = history.filter(h => h.accountId === accountId).reduce((s, h) => s + h.net, 0);
+  const deposit = pl !== 0 ? Math.max(1, currentEquity - pl) : currentEquity;
+  return { pl, pct: deposit ? (pl / deposit) * 100 : 0 };
+}
+
 // ========== Dashboard ==========
 export function Dashboard({
   accounts,
@@ -55,13 +88,16 @@ export function Dashboard({
   const displayTodayPL = hasHistory ? todayHistPL : 0;
   const displayTodayPLPct = totalEquity ? (displayTodayPL / totalEquity) * 100 : 0;
 
-  // Build equity curve: real from history when available, generated otherwise
+  // All portal accounts have a real MetaAPI ID (unprovisioned ones are filtered server-side).
+  // So when history is empty it means no closed trades yet — show a flat line at current
+  // equity rather than seed-generated noise that would misrepresent performance.
+  const hasMetaApi = scoped.some(a => a.metaApiAccountId);
+
   const curve = useM(() => {
     if (hasHistory) {
       const now = Date.now();
       const rangeStart = now - rangeDays * 86400_000;
       const sorted = [...scopedHistory].sort((a, b) => a.closeTime - b.closeTime);
-      // Equity at rangeStart = currentEquity minus P&L of trades that closed after rangeStart
       const plInRange = sorted.filter(h => h.closeTime >= rangeStart).reduce((s, h) => s + h.net, 0);
       let eq = totalEquity - plInRange;
       const pts: { t: number; eq: number }[] = [{ t: rangeStart, eq }];
@@ -71,8 +107,13 @@ export function Dashboard({
       if (pts[pts.length - 1].t < now - 60_000) pts.push({ t: now, eq: totalEquity });
       return pts;
     }
+    if (hasMetaApi) {
+      // Real MetaAPI balance but no closed-trade history — flat line at current equity.
+      const now = Date.now();
+      return [{ t: now - rangeDays * 86400_000, eq: totalEquity }, { t: now, eq: totalEquity }];
+    }
     return PortalData.aggregateEquity(scoped, rangeDays);
-  }, [activeAccountId, rangeDays, accounts, scopedHistory, hasHistory, totalEquity]);
+  }, [activeAccountId, rangeDays, accounts, scopedHistory, hasHistory, hasMetaApi, totalEquity]);
 
   // period return from curve
   const periodStart = curve[0]?.eq || 0;
@@ -288,8 +329,8 @@ export function Dashboard({
           </div>
           <div className="panel-body flush">
             {accounts.map(a => {
-              const miniCurve = PortalData.genEquityCurve(a.seed, 30, a.equity || a.deposit || 100);
-              const pct = a.deposit ? ((a.equity - a.deposit) / a.deposit) * 100 : 0;
+              const miniCurve = accountSparkline(a.id, a.equity, history);
+              const { pct } = accountPL(a.id, a.equity, history);
               return (
                 <div key={a.id} style={{ padding: '14px 20px', borderBottom: '1px solid var(--rule)', display: 'flex', alignItems: 'center', gap: 14 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -324,11 +365,13 @@ export function Dashboard({
 // ========== Accounts ==========
 export function Accounts({
   accounts,
+  history,
   onConnect,
   onSelect,
   dataUpdatedAt,
 }: {
   accounts: PortalAccount[];
+  history: HistoryRow[];
   onConnect?: () => void;
   onSelect: (id: string) => void;
   dataUpdatedAt: number;
@@ -350,8 +393,8 @@ export function Accounts({
 
       <div className="accounts-grid">
         {accounts.map(a => {
-          const miniCurve = PortalData.genEquityCurve(a.seed, 30, a.equity || a.deposit || 100);
-          const pct = a.deposit ? ((a.equity - a.deposit) / a.deposit) * 100 : 0;
+          const miniCurve = accountSparkline(a.id, a.equity, history);
+          const { pl: accPL, pct } = accountPL(a.id, a.equity, history);
           return (
             <div key={a.id} className="account-card">
               <div className="acc-head">
@@ -374,8 +417,10 @@ export function Accounts({
                       <span className="m-v"><FlashNum value={a.equity} ccy={a.currency}/></span>
                     </div>
                     <div className="m">
-                      <span className="m-k">P&L</span>
-                      <span className="m-v" style={{ color: pct >= 0 ? 'var(--up)' : 'var(--down)' }}>{fmt.pct(pct)}</span>
+                      <span className="m-k">Total P&L</span>
+                      <span className="m-v" style={{ color: accPL >= 0 ? 'var(--up)' : 'var(--down)' }}>
+                        {fmt.moneySigned(accPL, a.currency)}
+                      </span>
                     </div>
                     <div className="m">
                       <span className="m-k">Leverage</span>

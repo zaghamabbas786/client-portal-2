@@ -144,6 +144,14 @@ export async function GET() {
       const posList = posRes.ok ? normalizePositionArray(posRes.data) : [];
       const deals = dealsRes.ok ? normalizeDealArray(dealsRes.data) : [];
 
+      if (!dealsRes.ok) {
+        console.error(`[metaapi-snapshot] history-deals failed for ${metaId}: status=${dealsRes.status} body=${dealsRes.body}`);
+      } else {
+        const sampleTypes = [...new Set(deals.map(d => `${d.type}/${d.entryType ?? 'no-entry'}`))].slice(0, 10);
+        console.log(`[metaapi-snapshot] deals for ${metaId}: count=${deals.length} types=[${sampleTypes.join(', ')}]`);
+        if (deals.length > 0) console.log(`[metaapi-snapshot] first deal sample:`, JSON.stringify(deals[0]));
+      }
+
       // Compute equity from balance + floating P&L (profit + swap) of open positions.
       // Some brokers (e.g. FTMO) return the floating P&L in MetaAPI's equity field
       // instead of the actual account equity, so we derive it ourselves when possible.
