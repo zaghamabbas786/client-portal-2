@@ -18,6 +18,7 @@ export function ConnectModal({
   );
   const [step, setStep] = useState<"form" | "connecting" | "done">("form");
   const [error, setError] = useState<string | null>(null);
+  const [savedPending, setSavedPending] = useState(false);
   const [form, setForm] = useState({ server: "", login: "", password: "", label: "" });
   const set =
     (k: keyof typeof form) =>
@@ -79,8 +80,9 @@ export function ConnectModal({
           return;
         }
         if (j.metaapi_warning) {
-          setStep("done");
-          setError(`Account saved but MetaAPI connection failed: ${j.metaapi_warning}`);
+          setStep("form");
+          setSavedPending(true);
+          setError(`MetaAPI connection pending — account saved but won't appear in the client portal yet. Use "Retry MetaAPI" in the accounts panel once the broker is ready.`);
           return;
         }
       } else {
@@ -230,10 +232,14 @@ export function ConnectModal({
                 TLS 1.3 · AES-256 at rest
               </span>
               <div style={{ display: "flex", gap: 8 }}>
-                <button type="button" className="btn ghost" onClick={onClose}>Cancel</button>
-                <LoadingButton type="submit" variant="primary" loading={false}>
-                  Connect account
-                </LoadingButton>
+                <button type="button" className="btn ghost" onClick={onClose}>
+                  {savedPending ? "Close" : "Cancel"}
+                </button>
+                {!savedPending && (
+                  <LoadingButton type="submit" variant="primary" loading={false}>
+                    Connect account
+                  </LoadingButton>
+                )}
               </div>
             </div>
           </form>

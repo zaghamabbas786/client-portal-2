@@ -16,6 +16,7 @@ export async function GET() {
     .from("trading_accounts")
     .select("*")
     .eq("user_id", user.id)
+    .not("metaapi_account_id", "is", null)
     .order("created_at", { ascending: true });
 
   if (error) {

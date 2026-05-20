@@ -122,6 +122,7 @@ export function PortalApp() {
   const [route, setRoute] = useState("dashboard");
   const [activeAccountId, setActiveAccountId] = useState("all");
   const [theme, setTheme] = useState("dark");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [accounts, setAccounts] = useState<PortalAccount[]>([]);
   const [positions, setPositions] = useState<PositionRow[]>([]);
@@ -419,13 +420,15 @@ export function PortalApp() {
     <div className="app">
       <Sidebar
         route={route}
-        setRoute={setRoute}
+        setRoute={(r) => { setRoute(r); setSidebarOpen(false); }}
         accountsCount={accounts.length}
         positionsCount={positions.length}
         userLabel={userLabel}
         userSub={userSub}
         isAdmin={isAdmin}
         onSignOut={onSignOut}
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
       />
       <div className="main">
         <Topbar
@@ -435,6 +438,7 @@ export function PortalApp() {
           setActiveAccountId={setActiveAccountId}
           theme={theme}
           setTheme={setTheme}
+          onMenuOpen={() => setSidebarOpen(true)}
         />
         <div className="page">
           {route === "dashboard" && (

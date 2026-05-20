@@ -75,8 +75,13 @@ export async function POST(request: Request) {
       metaapiRegion = prov.data.region;
       console.log(`[admin/trading-accounts] Auto-provisioned MetaAPI account: ${metaapiId} region=${metaapiRegion}`);
     } else if (!prov.ok) {
-      metaapiWarning = prov.body;
       console.warn(`[admin/trading-accounts] MetaAPI provisioning failed: status=${prov.status} body=${prov.body}`);
+      if (prov.status !== 202) {
+        // Hard failure (bad credentials, unknown server, etc.) — don't save the account.
+        return Response.json({ error: `MetaAPI: ${prov.body}` }, { status: 400 });
+      }
+      // 202: MetaAPI accepted but UUID not yet assigned — save without ID so admin can retry later.
+      metaapiWarning = prov.body;
     }
 
     const seed = Math.floor(Math.random() * 900) + 100;
